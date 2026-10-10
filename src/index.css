@@ -1,0 +1,89 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-brass: hsl(var(--brass));
+  --color-canvas: hsl(var(--canvas));
+  --color-hero: hsl(var(--hero));
+}
+
+:root {
+  --canvas: 216 16% 90%;
+  --background: 0 0% 100%;
+  --foreground: 206 28% 16%;
+  --card: 0 0% 100%;
+  --card-foreground: 206 28% 16%;
+  --border: 210 18% 92%;
+  --input: 210 16% 94%;
+  --primary: 168 72% 27%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 20% 96%;
+  --secondary-foreground: 206 18% 28%;
+  --muted: 210 20% 96%;
+  --muted-foreground: 214 12% 52%;
+  --accent: 168 42% 94%;
+  --accent-foreground: 168 72% 22%;
+  --destructive: 4 72% 48%;
+  --destructive-foreground: 0 0% 100%;
+  --warning: 40 88% 48%;
+  --warning-foreground: 32 40% 16%;
+  --ring: 168 72% 27%;
+  --sidebar: 168 68% 15%;
+  --sidebar-foreground: 160 20% 96%;
+  --brass: 43 86% 58%;
+  --hero: 168 74% 26%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: hsl(var(--foreground));
+  background: hsl(var(--canvas));
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+a,
+input {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
