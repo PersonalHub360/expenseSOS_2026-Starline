@@ -42,6 +42,16 @@ export async function createWorkspaceUser(
   return { ok: true as const, id: created.id };
 }
 
+export async function setWorkspacePassword(actor: Principal, userId: string, password: string) {
+  const [account] = await db.select({ id: users.id, roleId: users.roleId }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!account) return { ok: false as const, status: 404, error: "User not found." };
+  const permissions = await rolePermissionsOf(account.roleId);
+  const ceiling = permissionCeilingError(actor.permissions, permissions);
+  if (ceiling) return { ok: false as const, status: 403, error: "You can only set a password for an account within your own access." };
+  await db.update(users).set({ passwordHash: await hashPassword(password) }).where(eq(users.id, account.id));
+  return { ok: true as const, id: account.id };
+}
+
 export async function createWorkspaceRole(
   actor: Principal,
   draft: { key: string; name: string; description: string; permissions: PermissionFlags[] },

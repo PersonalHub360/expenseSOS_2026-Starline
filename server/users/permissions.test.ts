@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { modules } from "../access";
-import { normalizePermissions, permissionCeilingError, roleKeyFromName } from "./validate";
+import { normalizePermissions, parsePasswordUpdate, permissionCeilingError, roleKeyFromName } from "./validate";
 
 test("a role name becomes a stable key", () => {
   assert.equal(roleKeyFromName("Site Manager"), "site_manager");
@@ -14,6 +14,11 @@ test("granting add also keeps view", () => {
   assert.equal(dashboard?.canView, true);
   assert.equal(dashboard?.canAdd, true);
   assert.equal(normalizePermissions([]).length, modules.length);
+});
+
+test("a sign-in password must be at least 12 characters", () => {
+  assert.equal(parsePasswordUpdate({ password: "short" }).ok, false);
+  assert.equal(parsePasswordUpdate({ password: "long-enough-password" }).ok, true);
 });
 
 test("a narrower role cannot grant a permission it lacks", () => {

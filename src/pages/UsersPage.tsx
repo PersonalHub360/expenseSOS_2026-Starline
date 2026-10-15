@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { KeyRound, Plus, Shield, UserRound } from "lucide-react";
 import type { PermissionFlags } from "@/auth/AuthContext";
 import { useAuth } from "@/auth/AuthContext";
+import { PasswordForm } from "@/components/users/PasswordForm";
 import { PermissionGrid } from "@/components/users/PermissionGrid";
 import { RoleForm } from "@/components/users/RoleForm";
 import { UserForm } from "@/components/users/UserForm";
@@ -18,6 +19,7 @@ type WorkspaceUser = {
   isActive: boolean;
   role: string;
   roleId: string;
+  hasPassword: boolean;
   createdAt: string;
 };
 
@@ -30,6 +32,7 @@ export function UsersPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [addingUser, setAddingUser] = useState(false);
+  const [passwordAccount, setPasswordAccount] = useState<WorkspaceUser | null>(null);
   const [creatingRole, setCreatingRole] = useState(false);
   const [saving, setSaving] = useState(false);
   const allowed = can(user, "users", "view");
@@ -107,7 +110,7 @@ export function UsersPage() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#0f766e]">Workspace</p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#16332c]">Users</h1>
-          <p className="mt-1 max-w-xl text-sm text-[#5c6b76]">Accounts stay in one list. Pick a role, then set its permissions beside it.</p>
+          <p className="mt-1 max-w-xl text-sm text-[#5c6b76]">Every account keeps a sign-in password. Pick a role, then set its permissions beside it.</p>
         </div>
         {canAdd ? (
           <Button onClick={() => setAddingUser(true)}>
@@ -133,7 +136,7 @@ export function UsersPage() {
           </span>
           <div>
             <h2 className="text-lg font-semibold text-[#16332c]">Accounts</h2>
-            <p className="text-xs text-[#64748b]">People who can sign in. Click a role to open its permissions.</p>
+            <p className="text-xs text-[#64748b]">People who can sign in. A saved password is what they type at sign-in.</p>
           </div>
         </div>
         {rows === null ? (
@@ -142,11 +145,12 @@ export function UsersPage() {
           <p className="px-5 pb-8 text-center text-sm text-[#7d8b96]">No accounts yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
+            <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="bg-[#f7faf8] text-[11px] uppercase tracking-wide text-[#64748b]">
                 <tr>
                   <th className="px-5 py-2 font-semibold">Username</th>
                   <th className="px-3 py-2 font-semibold">Email</th>
+                  <th className="px-3 py-2 font-semibold">Password</th>
                   <th className="px-3 py-2 font-semibold">Role</th>
                   <th className="px-3 py-2 font-semibold">Status</th>
                   <th className="px-5 py-2 font-semibold">Joined</th>
@@ -157,6 +161,18 @@ export function UsersPage() {
                   <tr key={account.id} className="border-t border-[#eef3f0]">
                     <td className="px-5 py-3 font-semibold text-[#16332c]">{account.username}</td>
                     <td className="px-3 py-3 text-[#475569]">{account.email}</td>
+                    <td className="px-3 py-3">
+                      <span className="inline-flex items-center gap-2">
+                        <span className={account.hasPassword ? "rounded-full bg-[#d1fae5] px-2.5 py-1 text-[11px] font-semibold text-[#047857]" : "rounded-full bg-[#fff7ed] px-2.5 py-1 text-[11px] font-semibold text-[#9a3412]"}>
+                          {account.hasPassword ? "Saved" : "Missing"}
+                        </span>
+                        {canEdit ? (
+                          <button type="button" className="font-medium text-[#0f766e] underline-offset-2 hover:underline" onClick={() => setPasswordAccount(account)}>
+                            Set password
+                          </button>
+                        ) : null}
+                      </span>
+                    </td>
                     <td className="px-3 py-3">
                       <button type="button" className="font-medium text-[#0f766e] underline-offset-2 hover:underline" onClick={() => chooseRole(account.roleId)}>
                         {account.role}
@@ -263,6 +279,19 @@ export function UsersPage() {
         </section>
       </div>
 
+      {passwordAccount ? (
+        <PasswordForm
+          userId={passwordAccount.id}
+          username={passwordAccount.username}
+          onClose={() => setPasswordAccount(null)}
+          onSaved={(message) => {
+            setPasswordAccount(null);
+            setNotice(message);
+            setError("");
+            load();
+          }}
+        />
+      ) : null}
       {addingUser && roles ? (
         <UserForm
           roles={roles}

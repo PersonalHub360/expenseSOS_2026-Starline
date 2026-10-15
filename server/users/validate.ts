@@ -66,6 +66,16 @@ export function parseNewUser(body: unknown) {
   return { ok: true as const, value: { ...parsed.data, email: parsed.data.email.toLowerCase() } };
 }
 
+export function parsePasswordUpdate(body: unknown) {
+  const parsed = z
+    .object({
+      password: z.string().min(12, "Use a password with at least 12 characters.").max(200),
+    })
+    .safeParse(body);
+  if (!parsed.success) return { ok: false as const, error: parsed.error.issues[0]?.message ?? "Check the password." };
+  return { ok: true as const, value: parsed.data };
+}
+
 export function parseNewRole(body: unknown) {
   const parsed = z
     .object({

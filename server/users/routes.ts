@@ -6,8 +6,8 @@ import type { Principal } from "../auth/principal";
 import { requireAuth, requirePermission } from "../auth/principal";
 import { db } from "../db/client";
 import { rolePermissions, roles, users } from "../db/schema";
-import { createWorkspaceRole, createWorkspaceUser, updateWorkspaceRole } from "./commands";
-import { parseNewRole, parseNewUser, parseRoleUpdate } from "./validate";
+import { createWorkspaceRole, createWorkspaceUser, setWorkspacePassword, updateWorkspaceRole } from "./commands";
+import { parseNewRole, parseNewUser, parsePasswordUpdate, parseRoleUpdate } from "./validate";
 
 const builtInKeys = new Set<string>(roleCatalog.map((role) => role.key));
 
@@ -110,6 +110,7 @@ usersRouter.get("/", requirePermission("users", "view"), async (_req, res) => {
       email: users.email,
       username: users.username,
       isActive: users.isActive,
+      passwordHash: users.passwordHash,
       createdAt: users.createdAt,
       role: roles.name,
       roleId: roles.id,
@@ -125,6 +126,7 @@ usersRouter.get("/", requirePermission("users", "view"), async (_req, res) => {
       isActive: row.isActive,
       role: row.role,
       roleId: row.roleId,
+      hasPassword: row.passwordHash.length > 0,
       createdAt: row.createdAt.toISOString(),
     })),
   });
@@ -157,4 +159,30 @@ usersRouter.post("/", requirePermission("users", "add"), async (req, res) => {
     }
     throw error;
   }
+});
+
+usersRouter.patch("/:id/password", requirePermission("users", "edit"), async (req, res) => {
+  const parsed = parsePasswordUpdate(req.body);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  if (!userId) {
+    res.status(404).json({ error: "User not found." });
+    return;
+  }
+  const updated = await setWorkspacePassword(actor(res), userId, parsed.value.password);
+  if (!updated.ok) {
+    res.status(updated.status).json({ error: updated.error });
+    return;
+  }
+  await writeAudit({
+    actorId: actor(res).id,
+    action: "update",
+    subjectType: "user",
+    subjectId: updated.id,
+    summary: "Password updated",
+  });
+  res.json({ id: updated.id });
 });

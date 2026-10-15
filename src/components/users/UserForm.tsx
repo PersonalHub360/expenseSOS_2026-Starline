@@ -44,7 +44,7 @@ export function UserForm({
   return (
     <Dialog title="Add user" onClose={onClose}>
       <form className="grid gap-3" onSubmit={onSubmit}>
-        <p className="text-sm text-[#5c6b76]">The password is stored hashed. It is never shown again.</p>
+        <p className="text-sm text-[#5c6b76]">A password is required. This is what the person types to sign in. It stays on the account, and it is not shown in the list.</p>
         <label className="text-sm font-medium">
           Username
           <input className={`${fieldClass} mt-1.5`} value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="off" required />
