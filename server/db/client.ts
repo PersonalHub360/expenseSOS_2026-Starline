@@ -5,7 +5,7 @@ import * as schema from "./schema";
 
 export const pool = new pg.Pool({
   connectionString: env.DATABASE_URL,
-  max: 10,
+  max: process.env.VERCEL ? 1 : 10,
 });
 
 export const db = drizzle(pool, { schema });

@@ -62,7 +62,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({ identifier, password }),
         });
         const body = (await response.json().catch(() => null)) as { user?: AuthUser; error?: string } | null;
-        if (!response.ok || !body?.user) return body?.error ?? "Could not sign in.";
+        if (!response.ok || !body?.user) {
+          return body?.error ?? (response.status === 404 ? "The sign-in service is not on this host." : "Could not sign in.");
+        }
         setUser(body.user);
         return null;
       },

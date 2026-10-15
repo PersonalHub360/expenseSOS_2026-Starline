@@ -17,8 +17,10 @@ import { pool } from "./db/client";
 
 const PgSession = connectPgSimple(session);
 
-function originAllowed(origin: string) {
+function originAllowed(origin: string, hostHeader: string | undefined) {
   if (origin === env.APP_ORIGIN) return true;
+  const host = hostHeader?.split(",")[0]?.trim();
+  if (host && (origin === `https://${host}` || origin === `http://${host}`)) return true;
   if (env.NODE_ENV !== "development") return false;
   try {
     const expected = new URL(env.APP_ORIGIN);
@@ -37,7 +39,8 @@ function originAllowed(origin: string) {
 
 export function createApp() {
   const app = express();
-  app.set("trust proxy", env.NODE_ENV === "production");
+  const hosted = env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
+  app.set("trust proxy", hosted);
   app.disable("x-powered-by");
   app.use(
     helmet({
@@ -64,7 +67,8 @@ export function createApp() {
       return;
     }
     const origin = req.get("origin");
-    if (origin && !originAllowed(origin)) {
+    const host = req.get("x-forwarded-host") ?? req.get("host");
+    if (origin && !originAllowed(origin, host)) {
       res.status(403).json({ error: "Cross-origin request blocked" });
       return;
     }
@@ -90,7 +94,7 @@ export function createApp() {
       cookie: {
         httpOnly: true,
         sameSite: "lax",
-        secure: env.NODE_ENV === "production",
+        secure: hosted,
         path: "/",
         maxAge: 1000 * 60 * 60 * 8,
       },
