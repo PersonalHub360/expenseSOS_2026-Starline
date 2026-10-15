@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
+import { createApp } from "../server/app.js";
 
-let starting: Promise<Express> | undefined;
+let app: Express | undefined;
 
 function apiUrl(url: string | undefined) {
   const [path, query] = (url && url.startsWith("/") ? url : `/${url ?? ""}`).split("?");
@@ -19,15 +20,10 @@ function requestPath(req: Request) {
   return apiUrl(detailed ?? req.url);
 }
 
-function getApp() {
-  starting ??= import("../server/app").then(({ createApp }) => createApp());
-  return starting;
-}
-
 export default async function handler(req: Request, res: Response) {
   try {
     req.url = requestPath(req);
-    const app = await getApp();
+    app ??= createApp();
     app(req, res);
   } catch (error) {
     console.error(error instanceof Error ? error.message : "API failed to start");

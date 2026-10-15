@@ -12,9 +12,11 @@ const schema = z.object({
   DEMO_ADMIN_PASSWORD: z.string().min(12).optional(),
 });
 
-const parsed = schema.safeParse(process.env);
+type Env = z.infer<typeof schema>;
 
-if (!parsed.success) {
+function readEnv(): Env {
+  const parsed = schema.safeParse(process.env);
+  if (parsed.success) return parsed.data;
   const fields = parsed.error.issues.map((issue) => issue.path.join(".") || "environment").join(", ");
   const message = `Invalid environment configuration: ${fields}`;
   if (process.env.VERCEL) throw new Error(message);
@@ -22,4 +24,11 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const env = parsed.data;
+let loaded: Env | undefined;
+
+export const env: Env = new Proxy({} as Env, {
+  get(_target, property) {
+    loaded ??= readEnv();
+    return loaded[property as keyof Env];
+  },
+});
