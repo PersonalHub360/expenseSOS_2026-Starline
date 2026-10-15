@@ -3,9 +3,15 @@ import type { Express, Request, Response } from "express";
 let starting: Promise<Express> | undefined;
 
 function apiUrl(url: string | undefined) {
-  const path = url && url.startsWith("/") ? url : `/${url ?? ""}`;
-  if (path === "/api" || path.startsWith("/api/") || path.startsWith("/api?")) return path;
-  return `/api${path}`;
+  const [path, query] = (url && url.startsWith("/") ? url : `/${url ?? ""}`).split("?");
+  const withApi = path === "/api" || path.startsWith("/api/") ? path : `/api${path}`;
+  return query ? `${withApi}?${query}` : withApi;
+}
+
+function requestPath(req: Request) {
+  const candidates = [req.url, req.get("x-forwarded-uri"), req.get("x-original-url"), req.get("x-invoke-path"), req.get("x-matched-path")];
+  const detailed = candidates.find((value) => value?.includes("/api/") && !value.startsWith("/api?"));
+  return apiUrl(detailed ?? req.url);
 }
 
 function getApp() {
@@ -14,7 +20,7 @@ function getApp() {
 }
 
 export default async function handler(req: Request, res: Response) {
-  req.url = apiUrl(req.url);
+  req.url = requestPath(req);
   try {
     const app = await getApp();
     app(req, res);
