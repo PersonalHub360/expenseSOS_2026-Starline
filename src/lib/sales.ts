@@ -44,6 +44,7 @@ export type BuyerProfile = {
   email: string;
   address: string;
   notes: string;
+  projectName: string;
   flatAmount: string;
   size: string;
   installmentPayment: string;
@@ -59,6 +60,7 @@ export type BuyerListItem = {
   phone: string;
   email: string;
   address: string;
+  projectName: string;
   flatAmount: string;
   size: string;
   installmentPayment: string;
@@ -73,12 +75,14 @@ export type BuyerListItem = {
   received: string;
   outstanding: string;
   projects: string[];
+  installmentPayments: string[];
 };
 
 export type BookingListItem = {
   id: string;
   reference: string;
   amount: string;
+  installmentYears: number;
   status: "open" | "converted" | "cancelled";
   note: string;
   cancellationReason: string;
@@ -139,6 +143,8 @@ export type CatalogUnit = {
   id: string;
   number: string;
   type: string;
+  size: string;
+  sizeUnit: string;
   price: string;
   status: string;
   projectId: string;

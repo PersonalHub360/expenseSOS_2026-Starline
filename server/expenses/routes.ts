@@ -7,6 +7,9 @@ import { vendorBills } from "../db/schema";
 import {
   attachReceipt,
   clearReceipt,
+  addExpenseCategory,
+  addPurchaseType,
+  renamePurchaseType,
   createBill,
   createExpense,
   createVendor,
@@ -17,9 +20,11 @@ import {
   decideVendorPayment,
   deleteExpense,
   deleteVendor,
+  importExpenses,
   OperationDenied,
   postNextExpense,
   recordVendorPayment,
+  removeExpenseCategory,
   requestBillVoid,
   requestExpenseVoid,
   updateExpense,
@@ -27,7 +32,7 @@ import {
 } from "./commands";
 import { readReceipt } from "./files";
 import { expenseCatalog, expenseSummary, getExpense, getVendor, listExpenses, listVendors, receiptFile } from "./queries";
-import { parseBill, parseDecision, parseExpenseFilters, parseExpenseInput, parseReceiptUpload, parseVendor, parseVendorPayment } from "./validate";
+import { parseBill, parseCategoryName, parseDecision, parseExpenseFilters, parseExpenseImport, parseExpenseInput, parseReceiptUpload, parseVendor, parseVendorPayment } from "./validate";
 
 const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -43,6 +48,88 @@ expensesRouter.get("/summary", requirePermission("expenses", "view"), async (_re
 
 expensesRouter.get("/catalog", requirePermission("expenses", "view"), async (_req, res) => {
   res.json(await expenseCatalog());
+});
+
+expensesRouter.post("/purchase-types", requirePermission("expenses", "add"), async (req, res) => {
+  const parsed = parseCategoryName(req.body);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  try {
+    const id = await addPurchaseType(principal(res), parsed.value);
+    await writeAudit({ actorId: principal(res).id, action: "create", subjectType: "purchase_type", subjectId: id, summary: "Purchase type added" });
+    res.status(201).json(await expenseCatalog());
+  } catch (error) {
+    if (!sendDenied(res, error)) throw error;
+  }
+});
+
+expensesRouter.patch("/purchase-types/:id", requirePermission("expenses", "edit"), async (req, res) => {
+  const id = routeId(req);
+  if (!id) {
+    res.status(404).json({ error: "Purchase type not found." });
+    return;
+  }
+  const parsed = parseCategoryName(req.body);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  try {
+    await renamePurchaseType(principal(res), id, parsed.value);
+    await writeAudit({ actorId: principal(res).id, action: "update", subjectType: "purchase_type", subjectId: id, summary: "Purchase type renamed" });
+    res.json(await expenseCatalog());
+  } catch (error) {
+    if (!sendDenied(res, error)) throw error;
+  }
+});
+
+expensesRouter.post("/categories", requirePermission("expenses", "add"), async (req, res) => {
+  const parsed = parseCategoryName(req.body);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  try {
+    const id = await addExpenseCategory(principal(res), parsed.value);
+    await writeAudit({ actorId: principal(res).id, action: "create", subjectType: "expense_category", subjectId: id, summary: "Expense category added" });
+    res.status(201).json(await expenseCatalog());
+  } catch (error) {
+    if (!sendDenied(res, error)) throw error;
+  }
+});
+
+expensesRouter.delete("/categories/:id", requirePermission("expenses", "edit"), async (req, res) => {
+  const id = routeId(req);
+  if (!id) {
+    res.status(404).json({ error: "Category not found." });
+    return;
+  }
+  try {
+    await removeExpenseCategory(principal(res), id);
+    await writeAudit({ actorId: principal(res).id, action: "delete", subjectType: "expense_category", subjectId: id, summary: "Expense category removed" });
+    res.json(await expenseCatalog());
+  } catch (error) {
+    if (!sendDenied(res, error)) throw error;
+  }
+});
+
+expensesRouter.post("/import", requirePermission("expenses", "add"), async (req, res) => {
+  const parsed = parseExpenseImport(req.body);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  try {
+    const result = await importExpenses(principal(res), parsed.value);
+    for (const id of result.ids) {
+      await writeAudit({ actorId: principal(res).id, action: "create", subjectType: "expense", subjectId: id, summary: "Expense imported" });
+    }
+    res.status(201).json({ created: result.created, pending: result.pending });
+  } catch (error) {
+    if (!sendDenied(res, error)) throw error;
+  }
 });
 
 expensesRouter.get("/", requirePermission("expenses", "view"), async (req, res) => {

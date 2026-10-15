@@ -78,8 +78,8 @@ export function ProjectDetailPage() {
 
   return (
     <div>
-      <Link href="/projects" className="text-sm font-medium text-[#12786c] hover:underline">
-        All projects
+      <Link href="/properties" className="inline-flex h-11 items-center gap-2 rounded-xl border border-[#c4b5fd] bg-white px-4 text-sm font-semibold text-[#5b21b6] hover:bg-[#f5f3ff]">
+        Properties/Units
       </Link>
       {project ? (
         <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">

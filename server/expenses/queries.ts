@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { approvals, accounts, expenses, projects, vendorBills, vendorPayments, vendors } from "../db/schema";
+import { approvals, accounts, expenseCategories, expenses, projects, purchaseTypes, vendorBills, vendorPayments, vendors } from "../db/schema";
 import { addMoney, subtractMoney } from "../projects/money";
 import { expenseTotal, pendingTotal, vendorOutstanding } from "./ledger";
 import { countsTowardBill } from "./policy";
@@ -137,12 +137,23 @@ export async function expenseCatalog() {
     .select({ id: vendors.id, name: vendors.name, kind: vendors.kind })
     .from(vendors)
     .orderBy(asc(vendors.name));
-  const categoryRows = await db.selectDistinct({ category: expenses.category }).from(expenses).orderBy(asc(expenses.category));
+  const savedCategories = await db
+    .select({ id: expenseCategories.id, name: expenseCategories.name })
+    .from(expenseCategories)
+    .orderBy(asc(expenseCategories.name));
+  const usedCategories = await db.selectDistinct({ category: expenses.category }).from(expenses);
+  const categoryOptions = mergeCategories(
+    savedCategories,
+    usedCategories.map((row) => row.category),
+  );
+  const typeRows = await db.select({ id: purchaseTypes.id, name: purchaseTypes.name }).from(purchaseTypes).orderBy(asc(purchaseTypes.name));
   const { accounts: accountRows } = await listAccounts();
   return {
     projects: projectRows,
     vendors: vendorRows,
-    categories: categoryRows.map((row) => row.category),
+    categories: categoryOptions.map((row) => row.name),
+    categoryOptions,
+    purchaseTypes: typeRows,
     accounts: accountRows
       .filter((account) => account.isActive)
       .map((account) => ({ id: account.id, name: account.name, kind: account.kind, balance: account.balance })),
@@ -271,6 +282,20 @@ export async function receiptFile(id: string) {
     receiptName: row.receiptName,
     receiptType: row.receiptType,
   };
+}
+
+function mergeCategories(saved: { id: string; name: string }[], used: string[]) {
+  const byName = new Map<string, { id: string | null; name: string }>();
+  for (const row of saved) {
+    const key = row.name.trim().toLowerCase();
+    if (key) byName.set(key, { id: row.id, name: row.name });
+  }
+  for (const name of used) {
+    const key = name.trim().toLowerCase();
+    if (!key || byName.has(key)) continue;
+    byName.set(key, { id: null, name: name.trim() });
+  }
+  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function presentExpense(row: {

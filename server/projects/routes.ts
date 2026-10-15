@@ -3,10 +3,10 @@ import { writeAudit } from "../audit/log";
 import { Router, type Request } from "express";
 import { requireAuth, requirePermission, type Principal } from "../auth/principal";
 import { db } from "../db/client";
-import { documents, employees, investments, projects } from "../db/schema";
+import { documents, employees, investments, projects, units } from "../db/schema";
 import { createExpense, OperationDenied } from "../expenses/commands";
 import { todayUtc } from "../expenses/dates";
-import { listProjects, projectDetail, replaceStaff } from "./queries";
+import { listProjects, listPropertyBoard, projectDetail, replaceStaff, syncProjectUnits } from "./queries";
 import { parseDocument, parseExpense, parseInvestment, parseProject } from "./validate";
 
 export const projectsRouter = Router();
@@ -23,6 +23,10 @@ projectsRouter.get("/directory", requirePermission("projects", "view"), async (_
 
 projectsRouter.get("/", requirePermission("projects", "view"), async (_req, res) => {
   res.json({ projects: await listProjects() });
+});
+
+projectsRouter.get("/portfolio", requirePermission("properties", "view"), async (_req, res) => {
+  res.json({ projects: await listPropertyBoard() });
 });
 
 projectsRouter.post("/", requirePermission("projects", "add"), async (req, res) => {
@@ -51,6 +55,13 @@ projectsRouter.post("/", requirePermission("projects", "add"), async (req, res) 
     if (!staff.ok) {
       await db.delete(projects).where(eq(projects.id, created.id));
       res.status(400).json({ error: staff.error });
+      return;
+    }
+    const stored = await storeUnits(created.id, parsed.value.location, parsed.value.units);
+    if (!stored.ok) {
+      await db.delete(units).where(eq(units.projectId, created.id));
+      await db.delete(projects).where(eq(projects.id, created.id));
+      res.status(400).json({ error: stored.error });
       return;
     }
     res.status(201).json(await projectDetail(created.id));
@@ -90,6 +101,11 @@ projectsRouter.patch("/:id", requirePermission("projects", "edit"), async (req, 
     const staff = await replaceStaff(existing.id, parsed.value.staffIds, parsed.value.staff);
     if (!staff.ok) {
       res.status(400).json({ error: staff.error });
+      return;
+    }
+    const stored = await storeUnits(existing.id, parsed.value.location, parsed.value.units);
+    if (!stored.ok) {
+      res.status(400).json({ error: stored.error });
       return;
     }
     await writeAudit({
@@ -235,4 +251,23 @@ function isUniqueViolation(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   if ("code" in error && error.code === "23505") return true;
   return "cause" in error && isUniqueViolation(error.cause);
+}
+
+async function storeUnits(
+  projectId: string,
+  projectLocation: string,
+  drafts: NonNullable<ReturnType<typeof parseProject> & { ok: true }>["value"]["units"],
+) {
+  if (!drafts) return { ok: true as const };
+  try {
+    return await syncProjectUnits(
+      projectId,
+      drafts.map((unit) => ({ ...unit, location: unit.location || projectLocation })),
+    );
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return { ok: false as const, error: "This unit number is already used in the project." };
+    }
+    throw error;
+  }
 }

@@ -15,6 +15,8 @@ export type ManualSlip = {
   note: string;
   projectName: string;
   unitNumber: string;
+  completed: boolean;
+  completedAt: string;
 };
 
 const STORAGE_KEY = "starline.manual.slips.v1";
@@ -39,6 +41,8 @@ export function loadManualSlips(): ManualSlip[] {
         note: slip.note ?? "",
         projectName: slip.projectName ?? "",
         unitNumber: slip.unitNumber ?? "",
+        completed: slip.completed === true,
+        completedAt: typeof slip.completedAt === "string" ? slip.completedAt : "",
       }];
     });
   } catch {
@@ -53,6 +57,14 @@ export function saveManualSlip(slip: ManualSlip) {
 
 export function findManualSlip(id: string) {
   return loadManualSlips().find((slip) => slip.id === id) ?? null;
+}
+
+export function completeManualSlip(id: string) {
+  const slip = findManualSlip(id);
+  if (!slip || slip.completed) return slip;
+  const completed = { ...slip, completed: true, completedAt: new Date().toISOString() };
+  saveManualSlip(completed);
+  return completed;
 }
 
 export function createSlipSerial(kind: SlipKind = "payment") {

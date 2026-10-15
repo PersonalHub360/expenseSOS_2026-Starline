@@ -3,13 +3,14 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Principal } from "../auth/principal";
 import { allows, type AppModule, type PermissionAction } from "../access";
 import { db } from "../db/client";
-import { approvals, accountTransactions, accounts, expenses, projects, vendorBills, vendorPayments, vendors } from "../db/schema";
+import { approvals, accountTransactions, accounts, expenseCategories, expenses, projects, purchaseTypes, vendorBills, vendorPayments, vendors } from "../db/schema";
 import { advanceDate } from "./dates";
 import { inspectReceipt, removeReceipt, storeReceipt } from "./files";
 import { accountBalance } from "../finance/ledger";
 import { amountAvailable, withinRemaining } from "./ledger";
 import { needsApproval } from "./policy";
 import { compareMoney } from "../projects/money";
+import { expenseMethod, parseExpenseInput, type ExpenseImportRow } from "./validate";
 
 type Subject = "expense" | "expense_void" | "vendor_bill" | "vendor_bill_void" | "vendor_payment";
 type Frequency = "monthly" | "quarterly" | "yearly";
@@ -124,6 +125,124 @@ export async function createExpense(principal: Principal, draft: ExpenseDraft) {
     }
     return created.id;
   });
+}
+
+export async function addExpenseCategory(principal: Principal, name: string) {
+  requireAction(principal, "expenses", "add");
+  const trimmed = name.trim();
+  const [existing] = await db
+    .select({ id: expenseCategories.id })
+    .from(expenseCategories)
+    .where(sql`lower(${expenseCategories.name}) = ${trimmed.toLowerCase()}`)
+    .limit(1);
+  if (existing) throw new OperationDenied("This category is already saved.", 409);
+  const [created] = await db.insert(expenseCategories).values({ name: trimmed }).returning({ id: expenseCategories.id });
+  if (!created) throw new Error("Category was not stored.");
+  return created.id;
+}
+
+export async function addPurchaseType(principal: Principal, name: string) {
+  requireAction(principal, "expenses", "add");
+  const trimmed = name.trim();
+  const [existing] = await db
+    .select({ id: purchaseTypes.id })
+    .from(purchaseTypes)
+    .where(sql`lower(${purchaseTypes.name}) = ${trimmed.toLowerCase()}`)
+    .limit(1);
+  if (existing) throw new OperationDenied("This purchase type is already saved.", 409);
+  const [created] = await db.insert(purchaseTypes).values({ name: trimmed }).returning({ id: purchaseTypes.id });
+  if (!created) throw new Error("Purchase type was not stored.");
+  return created.id;
+}
+
+export async function renamePurchaseType(principal: Principal, id: string, name: string) {
+  requireAction(principal, "expenses", "edit");
+  const trimmed = name.trim();
+  const [row] = await db.select({ id: purchaseTypes.id, name: purchaseTypes.name }).from(purchaseTypes).where(eq(purchaseTypes.id, id)).limit(1);
+  if (!row) throw new OperationDenied("Purchase type not found.", 404);
+  if (row.name.toLowerCase() === trimmed.toLowerCase()) {
+    if (row.name !== trimmed) await db.update(purchaseTypes).set({ name: trimmed }).where(eq(purchaseTypes.id, id));
+    return;
+  }
+  const [taken] = await db
+    .select({ id: purchaseTypes.id })
+    .from(purchaseTypes)
+    .where(sql`lower(${purchaseTypes.name}) = ${trimmed.toLowerCase()}`)
+    .limit(1);
+  if (taken) throw new OperationDenied("This purchase type is already saved.", 409);
+  await db.transaction(async (tx) => {
+    await tx.update(expenses).set({ category: trimmed }).where(sql`lower(${expenses.category}) = ${row.name.toLowerCase()}`);
+    await tx.update(purchaseTypes).set({ name: trimmed }).where(eq(purchaseTypes.id, id));
+  });
+}
+
+export async function removeExpenseCategory(principal: Principal, id: string) {
+  requireAction(principal, "expenses", "edit");
+  const [row] = await db.select({ id: expenseCategories.id, name: expenseCategories.name }).from(expenseCategories).where(eq(expenseCategories.id, id)).limit(1);
+  if (!row) throw new OperationDenied("Category not found.", 404);
+  const [used] = await db
+    .select({ id: expenses.id })
+    .from(expenses)
+    .where(sql`lower(${expenses.category}) = ${row.name.toLowerCase()}`)
+    .limit(1);
+  if (used) throw new OperationDenied("This category is used by an expense and cannot be removed.", 409);
+  await db.delete(expenseCategories).where(eq(expenseCategories.id, id));
+}
+
+export async function importExpenses(principal: Principal, rows: ExpenseImportRow[]) {
+  requireAction(principal, "expenses", "add");
+  const accountRows = await db.select({ id: accounts.id, name: accounts.name, isActive: accounts.isActive }).from(accounts);
+  const projectRows = await db.select({ id: projects.id, name: projects.name }).from(projects);
+  const ready: { line: number; draft: ExpenseDraft }[] = [];
+  const errors: string[] = [];
+  for (const row of rows) {
+    const method = expenseMethod(row.method);
+    const accountName = row.account.trim();
+    const accountMatches = accountName ? named(accountRows, accountName).filter((account) => account.isActive) : [];
+    const projectName = row.project.trim();
+    const projectMatches = projectName ? named(projectRows, projectName) : [];
+    const parsed = parseExpenseInput({
+      category: row.category,
+      description: row.description,
+      amount: row.amount,
+      method: method ?? "cash",
+      accountId: accountMatches.length === 1 ? accountMatches[0].id : undefined,
+      projectId: projectMatches.length === 1 ? projectMatches[0].id : undefined,
+      spentOn: row.date.trim(),
+      frequency: null,
+      nextDueDate: "",
+    });
+    if (!accountName) errors.push(`Row ${row.line}: Enter the cash or bank account.`);
+    else if (named(accountRows, accountName).length === 0) errors.push(`Row ${row.line}: No account is named ${accountName}.`);
+    else if (accountMatches.length === 0) errors.push(`Row ${row.line}: Choose an active cash or bank account.`);
+    else if (accountMatches.length > 1) errors.push(`Row ${row.line}: More than one account uses that name.`);
+    if (projectName && projectMatches.length === 0) errors.push(`Row ${row.line}: No project is named ${projectName}.`);
+    else if (projectMatches.length > 1) errors.push(`Row ${row.line}: More than one project uses that name.`);
+    if (!method) errors.push(`Row ${row.line}: Use cash, bank, bkash, nagad, or cheque.`);
+    if (!parsed.ok) errors.push(`Row ${row.line}: ${parsed.error}`);
+    else if (method && accountMatches.length === 1 && (!projectName || projectMatches.length === 1)) ready.push({ line: row.line, draft: parsed.value });
+  }
+  if (errors.length) {
+    const extra = errors.length > 6 ? ` ${errors.length - 6} more rows need attention.` : "";
+    throw new OperationDenied(`${errors.slice(0, 6).join(" ")}${extra}`, 400);
+  }
+
+  let pending = 0;
+  const ids: string[] = [];
+  for (const row of ready) {
+    try {
+      row.draft.category = await canonicalCategory(row.draft.category);
+      ids.push(await createExpense(principal, row.draft));
+      if (needsApproval(row.draft.amount)) pending += 1;
+    } catch (error) {
+      if (error instanceof OperationDenied) {
+        const saved = ids.length === 0 ? "" : `${ids.length} saved. `;
+        throw new OperationDenied(`${saved}Row ${row.line}: ${error.message}`, error.status);
+      }
+      throw error;
+    }
+  }
+  return { created: ids.length, pending, ids };
 }
 
 export async function updateExpense(principal: Principal, id: string, draft: ExpenseDraft) {
@@ -601,6 +720,23 @@ async function settleOpen(
     .update(approvals)
     .set({ status: decision, decidedBy: actorId, decidedAt: new Date(), note })
     .where(eq(approvals.id, open.id));
+}
+
+function named<T extends { name: string }>(rows: T[], name: string) {
+  const needle = name.trim().toLowerCase();
+  return rows.filter((row) => row.name.trim().toLowerCase() === needle);
+}
+
+async function canonicalCategory(name: string) {
+  const trimmed = name.trim();
+  const [existing] = await db
+    .select({ name: expenseCategories.name })
+    .from(expenseCategories)
+    .where(sql`lower(${expenseCategories.name}) = ${trimmed.toLowerCase()}`)
+    .limit(1);
+  if (existing) return existing.name;
+  const [created] = await db.insert(expenseCategories).values({ name: trimmed }).returning({ name: expenseCategories.name });
+  return created?.name ?? trimmed;
 }
 
 function spentAt(isoDate: string) {

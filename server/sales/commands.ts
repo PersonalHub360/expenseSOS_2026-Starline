@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { db } from "../db/client";
 import { removeRecordFile } from "../files/storage";
 import {
@@ -42,6 +42,7 @@ type BookingDraft = {
   amount: string;
   method: string;
   note: string;
+  installmentYears: number;
 };
 
 type CancellationDraft = {
@@ -78,6 +79,7 @@ export async function createBooking(input: BookingDraft) {
           buyerId: buyer.id,
           reference: documentCode("BK"),
           amount: input.amount,
+          installmentYears: input.installmentYears,
           note: input.note,
           bookedAt: now,
         })
@@ -264,10 +266,11 @@ export async function recordPayment(input: PaymentDraft) {
         .from(paymentAllocations)
         .innerJoin(installments, eq(paymentAllocations.installmentId, installments.id))
         .where(eq(installments.saleId, sale.id));
-      const position = installmentPosition(installmentRows, allocationRows).find((item) => item.id === chosen.id);
-      if (!position || compareMoney(input.amount, position.outstanding) > 0) {
-        throw new TransactionDenied(400, "The amount is greater than the remaining installment.");
-      }
+      const position = installmentPosition(installmentRows, allocationRows);
+      const start = position.findIndex((item) => item.id === chosen.id);
+      const forward = position.slice(start).map((item) => ({ id: item.id, remaining: item.outstanding }));
+      const allocation = allocateAcrossInstallments(input.amount, forward);
+      if (!allocation.ok) throw new TransactionDenied(400, "The amount is greater than the remaining balance from this installment onward.");
 
       const [payment] = await tx
         .insert(payments)
@@ -281,11 +284,13 @@ export async function recordPayment(input: PaymentDraft) {
         })
         .returning({ id: payments.id });
       if (!payment) throw new Error("Payment was not stored.");
-      await tx.insert(paymentAllocations).values({
-        paymentId: payment.id,
-        installmentId: chosen.id,
-        amount: input.amount,
-      });
+      await tx.insert(paymentAllocations).values(
+        allocation.parts.map((part) => ({
+          paymentId: payment.id,
+          installmentId: part.id,
+          amount: part.amount,
+        })),
+      );
 
       const now = new Date();
       const nextOutstanding = subtractMoney(outstanding, input.amount);
@@ -352,6 +357,98 @@ export async function deleteBooking(bookingId: string) {
       return booking.id;
     }),
   );
+}
+
+export async function deleteBuyer(buyerId: string) {
+  const fileKeys: string[] = [];
+  const result = await run(() =>
+    db.transaction(async (tx) => {
+      const [buyer] = await tx.select({ id: buyers.id }).from(buyers).where(eq(buyers.id, buyerId)).limit(1).for("update");
+      if (!buyer) throw new TransactionDenied(404, "Buyer not found.");
+
+      const buyerSales = await tx.select().from(sales).where(eq(sales.buyerId, buyerId)).for("update");
+      const buyerBookings = await tx.select().from(bookings).where(eq(bookings.buyerId, buyerId)).for("update");
+      const saleIds = buyerSales.map((sale) => sale.id);
+      const bookingIds = buyerBookings.map((booking) => booking.id);
+      const unitIds = [...new Set([...buyerSales.map((sale) => sale.unitId), ...buyerBookings.map((booking) => booking.unitId)])].sort();
+      if (unitIds.length > 0) {
+        await tx.select({ id: units.id }).from(units).where(inArray(units.id, unitIds)).orderBy(units.id).for("update");
+      }
+
+      const installmentRows =
+        saleIds.length > 0 ? await tx.select({ id: installments.id }).from(installments).where(inArray(installments.saleId, saleIds)) : [];
+      const installmentIds = installmentRows.map((row) => row.id);
+      const paymentMatch = [
+        saleIds.length > 0 ? inArray(payments.saleId, saleIds) : undefined,
+        bookingIds.length > 0 ? inArray(payments.bookingId, bookingIds) : undefined,
+      ].filter((condition) => condition !== undefined);
+      const paymentRows =
+        paymentMatch.length > 0 ? await tx.select({ id: payments.id }).from(payments).where(or(...paymentMatch)) : [];
+      const paymentIds = paymentRows.map((payment) => payment.id);
+
+      if (paymentIds.length > 0) {
+        await tx.delete(paymentAllocations).where(inArray(paymentAllocations.paymentId, paymentIds));
+      }
+      if (installmentIds.length > 0) {
+        await tx.delete(paymentAllocations).where(inArray(paymentAllocations.installmentId, installmentIds));
+        await tx.delete(installments).where(inArray(installments.id, installmentIds));
+      }
+      if (paymentIds.length > 0) {
+        await tx.delete(payments).where(inArray(payments.id, paymentIds));
+      }
+
+      const saleFiles =
+        saleIds.length > 0
+          ? await tx
+              .select({ storageKey: recordFiles.storageKey })
+              .from(recordFiles)
+              .where(and(eq(recordFiles.subjectType, "sale"), inArray(recordFiles.subjectId, saleIds)))
+          : [];
+      fileKeys.push(...saleFiles.map((file) => file.storageKey));
+      if (saleFiles.length > 0) {
+        await tx.delete(recordFiles).where(and(eq(recordFiles.subjectType, "sale"), inArray(recordFiles.subjectId, saleIds)));
+      }
+      if (saleIds.length > 0) await tx.delete(sales).where(inArray(sales.id, saleIds));
+      if (bookingIds.length > 0) {
+        await tx.delete(refunds).where(inArray(refunds.bookingId, bookingIds));
+        await tx.delete(bookings).where(inArray(bookings.id, bookingIds));
+      }
+
+      for (const unitId of unitIds) {
+        const [activeSale] = await tx
+          .select({ id: sales.id })
+          .from(sales)
+          .where(and(eq(sales.unitId, unitId), ne(sales.status, "cancelled")))
+          .limit(1);
+        const [openBooking] = await tx
+          .select({ id: bookings.id })
+          .from(bookings)
+          .where(and(eq(bookings.unitId, unitId), eq(bookings.status, "open")))
+          .limit(1);
+        const [unit] = await tx.select({ status: units.status }).from(units).where(eq(units.id, unitId)).limit(1);
+        if (!unit || unit.status === "cancelled") continue;
+        const next = activeSale ? "sold" : openBooking ? "reserved" : "available";
+        if (unit.status !== next) {
+          await tx.update(units).set({ status: next, updatedAt: new Date() }).where(eq(units.id, unitId));
+        }
+      }
+
+      const buyerFiles = await tx
+        .select({ storageKey: recordFiles.storageKey })
+        .from(recordFiles)
+        .where(and(eq(recordFiles.subjectType, "buyer"), eq(recordFiles.subjectId, buyerId)));
+      fileKeys.push(...buyerFiles.map((file) => file.storageKey));
+      if (buyerFiles.length > 0) {
+        await tx.delete(recordFiles).where(and(eq(recordFiles.subjectType, "buyer"), eq(recordFiles.subjectId, buyerId)));
+      }
+      await tx.delete(buyers).where(eq(buyers.id, buyerId));
+      return buyerId;
+    }),
+  );
+  if (result.ok) {
+    for (const key of fileKeys) await removeRecordFile(key);
+  }
+  return result;
 }
 
 export async function updateSale(input: SaleTerms & { saleId: string }) {

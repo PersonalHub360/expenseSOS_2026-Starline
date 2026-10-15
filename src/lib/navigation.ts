@@ -2,7 +2,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   Banknote,
   BarChart3,
-  Building2,
   CircleDollarSign,
   Landmark,
   LayoutDashboard,
@@ -52,16 +51,9 @@ export const navigation: NavGroup[] = [
     label: "Portfolio",
     items: [
       {
-        href: "/projects",
-        label: "Projects",
-        description: "Project records, budget against actual cost, and linked work.",
-        icon: Building2,
-        status: "live",
-      },
-      {
         href: "/properties",
         label: "Properties/Units",
-        description: "Plots, flats, and units under each project.",
+        description: "Projects, budgets, costs, and the plots, flats, and units inside them.",
         icon: Landmark,
         status: "live",
       },
@@ -163,9 +155,9 @@ export const navigation: NavGroup[] = [
       {
         href: "/settings",
         label: "Settings",
-        description: "Company profile and workspace preferences.",
+        description: "Company profile, printer, and invoice.",
         icon: Settings,
-        status: "coming-soon",
+        status: "live",
       },
     ],
   },

@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { Dialog, FieldError, fieldClass } from "@/components/inventory/Dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { planInstallments, saleSchedule } from "@/lib/installmentPlan";
 import { addMoney, compareMoney, formatTaka, normalizeMoney, subtractMoney } from "@/lib/money";
 import type { BookingListItem } from "@/lib/sales";
 
@@ -16,20 +17,27 @@ type SaleFormProps = {
 export function SaleForm({ booking, onClose, onSaved }: SaleFormProps) {
   const [listPrice, setListPrice] = useState(booking.unit.price);
   const [discount, setDiscount] = useState("0");
-  const [rows, setRows] = useState<InstallmentDraft[]>(() => openingInstallments(booking.unit.price, booking.amount));
+  const [manualRows, setManualRows] = useState<InstallmentDraft[]>(() => openingInstallments(booking.unit.price, booking.amount));
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const planYears = booking.installmentYears > 0 ? booking.installmentYears : 0;
   const net = useMemo(() => pricedNet(listPrice, discount), [listPrice, discount]);
+  const plannedRows = useMemo(
+    () => (planYears > 0 && net ? saleSchedule(net, booking.amount, planYears) : null),
+    [planYears, net, booking.amount],
+  );
+  const rows = planYears > 0 ? (plannedRows ?? []) : manualRows;
+  const preview = planYears > 0 && net ? planInstallments(net, booking.amount, planYears) : null;
   const scheduled = useMemo(() => sumDrafts(rows), [rows]);
   const gap = net && scheduled ? subtractMoney(net, scheduled) : null;
 
   function updateRow(index: number, patch: Partial<InstallmentDraft>) {
-    setRows((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+    setManualRows((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
   }
 
   function matchSchedule() {
-    if (!net) return;
-    setRows((current) => {
+    if (!net || planYears > 0) return;
+    setManualRows((current) => {
       if (current.length === 0) return [{ label: "Installment 1", dueDate: isoDate(0), amount: net }];
       const earlier = current.slice(0, -1);
       const earlierTotal = sumDrafts(earlier);
@@ -92,6 +100,18 @@ export function SaleForm({ booking, onClose, onSaved }: SaleFormProps) {
             </span>
           ) : null}
         </p>
+        {preview ? (
+          <section className="rounded-2xl border border-[#bbf7d0] bg-[#f0fdf4] p-4 text-sm text-[#166534]">
+            <p className="font-semibold">
+              {preview.years} {preview.years === 1 ? "year" : "years"}
+              {preview.months > 0 ? ` · ${preview.months} monthly installments of ${formatTaka(preview.regular)}` : " · downpayment covers the price"}
+            </p>
+            {preview.uneven ? <p className="mt-1">The last month is {formatTaka(preview.last)} so the schedule matches the price.</p> : null}
+            <p className="mt-1">The downpayment of {formatTaka(booking.amount)} is the first installment. It is not added again.</p>
+          </section>
+        ) : null}
+        {planYears === 0 ? (
+        <>
         <div className="grid gap-2">
           {rows.map((row, index) => (
             <div key={`${row.label}-${index}`} className="grid gap-2 rounded-xl border border-[#eef1f4] p-3 sm:grid-cols-[1.2fr_1fr_1fr_auto]">
@@ -119,7 +139,7 @@ export function SaleForm({ booking, onClose, onSaved }: SaleFormProps) {
                 type="button"
                 variant="ghost"
                 disabled={rows.length === 1}
-                onClick={() => setRows((current) => current.filter((_, rowIndex) => rowIndex !== index))}
+                onClick={() => setManualRows((current) => current.filter((_, rowIndex) => rowIndex !== index))}
               >
                 Remove
               </Button>
@@ -131,7 +151,7 @@ export function SaleForm({ booking, onClose, onSaved }: SaleFormProps) {
             type="button"
             variant="secondary"
             onClick={() =>
-              setRows((current) => [
+              setManualRows((current) => [
                 ...current,
                 { label: `Installment ${current.length + 1}`, dueDate: isoDate(30 * current.length), amount: "" },
               ])
@@ -143,6 +163,8 @@ export function SaleForm({ booking, onClose, onSaved }: SaleFormProps) {
             Match last installment
           </Button>
         </div>
+        </>
+        ) : null}
         <FieldError message={error} />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>

@@ -140,6 +140,61 @@ export function parseReceiptUpload(body: unknown) {
   return { ok: true as const, value: parsed.data };
 }
 
+const methodAliases: Record<string, (typeof paymentMethods)[number]> = {
+  cash: "cash",
+  bank: "bank",
+  "bank transfer": "bank",
+  bkash: "bkash",
+  nagad: "nagad",
+  cheque: "cheque",
+  check: "cheque",
+};
+
+export function expenseMethod(value: string) {
+  return methodAliases[value.trim().toLowerCase()] ?? null;
+}
+
+export function parseCategoryName(body: unknown) {
+  const parsed = z.object({ name: z.string().trim().min(1, "Enter a category name.").max(80) }).safeParse(body);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Enter a category name.");
+  return { ok: true as const, value: parsed.data.name };
+}
+
+export type ExpenseImportRow = {
+  line: number;
+  date: string;
+  category: string;
+  description: string;
+  amount: string;
+  method: string;
+  account: string;
+  project: string;
+};
+
+export function parseExpenseImport(body: unknown) {
+  const parsed = z
+    .object({
+      rows: z
+        .array(
+          z.object({
+            line: z.number().int().positive(),
+            date: z.string(),
+            category: z.string(),
+            description: z.string().optional().default(""),
+            amount: z.string(),
+            method: z.string(),
+            account: z.string(),
+            project: z.string().optional().default(""),
+          }),
+        )
+        .min(1, "Add at least one expense row.")
+        .max(100, "Import up to 100 expenses at a time."),
+    })
+    .safeParse(body);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the import file.");
+  return { ok: true as const, value: parsed.data.rows };
+}
+
 export function parseExpenseFilters(query: Record<string, unknown>) {
   const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
   const projectId = text(query.projectId);

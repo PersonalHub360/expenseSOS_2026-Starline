@@ -255,6 +255,7 @@ export function SaleDetailPage() {
         <PaymentForm
           saleId={id}
           installments={detail.installments}
+          payments={detail.payments}
           onClose={() => setPaying(false)}
           onSaved={() => {
             setPaying(false);

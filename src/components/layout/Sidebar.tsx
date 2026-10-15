@@ -113,6 +113,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
 function isItemActive(location: string, href: string) {
   if (href === "/") return location === "/";
+  if (href === "/properties" && (location === "/projects" || location.startsWith("/projects/"))) return true;
   return location === href || location.startsWith(`${href}/`);
 }
 

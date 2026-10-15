@@ -1,4 +1,4 @@
-import { Route, Switch } from "wouter";
+import { Redirect, Route, Switch } from "wouter";
 import { useAuth } from "@/auth/AuthContext";
 import { AppShell } from "@/components/layout/AppShell";
 import { flattenNavigation } from "@/lib/navigation";
@@ -8,7 +8,6 @@ import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { PaymentsPage } from "@/pages/PaymentsPage";
 import { ProjectDetailPage } from "@/pages/ProjectDetailPage";
-import { ProjectsPage } from "@/pages/ProjectsPage";
 import { PropertiesPage } from "@/pages/PropertiesPage";
 import { BuyerDetailPage } from "@/pages/BuyerDetailPage";
 import { BuyersPage } from "@/pages/BuyersPage";
@@ -27,6 +26,7 @@ import { InvestmentDetailPage } from "@/pages/InvestmentDetailPage";
 import { InvestmentsPage } from "@/pages/InvestmentsPage";
 import { SalarySlipPage } from "@/pages/SalarySlipPage";
 import { ReportsPage } from "@/pages/ReportsPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 import { UsersPage } from "@/pages/UsersPage";
 
 const moduleRoutes = flattenNavigation().filter(
@@ -51,7 +51,7 @@ export default function App() {
       <Switch>
         <Route path="/" component={DashboardPage} />
         <Route path="/projects/:id" component={ProjectDetailPage} />
-        <Route path="/projects" component={ProjectsPage} />
+        <Route path="/projects">{() => <Redirect to="/properties" />}</Route>
         <Route path="/properties" component={PropertiesPage} />
         <Route path="/buyers/:id" component={BuyerDetailPage} />
         <Route path="/buyers" component={BuyersPage} />
@@ -73,6 +73,7 @@ export default function App() {
         <Route path="/employees" component={EmployeesPage} />
         <Route path="/reports" component={ReportsPage} />
         <Route path="/users" component={UsersPage} />
+        <Route path="/settings" component={SettingsPage} />
         {moduleRoutes.map((item) => (
           <Route key={item.href} path={item.href} component={ComingSoonPage} />
         ))}

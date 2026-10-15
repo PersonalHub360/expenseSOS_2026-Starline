@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { planInstallments, yearsFromSchedule } from "../../src/lib/installmentPlan";
 import { addMoney, compareMoney, normalizeMoney } from "../projects/money";
 import { netPayable } from "./ledger";
 
@@ -14,11 +15,12 @@ const buyerSchema = z
     email: z.string().trim().max(160).optional().default(""),
     address: z.string().trim().max(300).optional().default(""),
     notes: z.string().trim().max(2000).optional().default(""),
+    projectName: z.string().trim().max(160).optional().default(""),
     flatAmount: z.string().trim().max(20).optional().default(""),
     size: z.string().trim().max(80).optional().default(""),
     installmentPayment: z.string().trim().max(20).optional().default(""),
     installmentAmount: z.string().trim().max(20).optional().default(""),
-    installmentSchedule: z.enum(["", "monthly", "yearly"]).optional().default(""),
+    installmentSchedule: z.enum(["", "monthly", "yearly", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]).optional().default(""),
     paymentAlertOn: z.string().trim().optional().default(""),
     dealStatus: z.enum(["", "booking", "running", "completed", "cancelled"]).optional().default(""),
   })
@@ -43,13 +45,23 @@ export function parseBuyer(body: unknown) {
   if (parsed.data.paymentAlertOn && !isCalendarDate(parsed.data.paymentAlertOn)) {
     return fail("Use a real payment alert date.");
   }
+  const years = yearsFromSchedule(parsed.data.installmentSchedule);
+  let monthly = installmentAmount.value;
+  if (years) {
+    if (!flatAmount.value || !installmentPayment.value) {
+      return fail("Enter the flat price and downpayment for this installment type.");
+    }
+    const plan = planInstallments(flatAmount.value, installmentPayment.value, years);
+    if (!plan) return fail("Downpayment cannot be more than the flat price, and the balance must cover each month.");
+    monthly = plan.months === 0 ? "" : plan.regular;
+  }
   return {
     ok: true as const,
     value: {
       ...parsed.data,
       flatAmount: flatAmount.value,
       installmentPayment: installmentPayment.value,
-      installmentAmount: installmentAmount.value,
+      installmentAmount: monthly,
     },
   };
 }
@@ -67,6 +79,7 @@ const bookingSchema = z.object({
   amount: z.string().trim(),
   method: methodField,
   note: z.string().trim().max(500).optional().default(""),
+  installmentYears: z.number().int().min(1).max(10).optional(),
 });
 
 export function parseBooking(body: unknown) {
@@ -74,7 +87,7 @@ export function parseBooking(body: unknown) {
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the booking.");
   const amount = positiveMoney(parsed.data.amount, "Enter a booking amount greater than zero.");
   if (!amount.ok) return amount;
-  return { ok: true as const, value: { ...parsed.data, amount: amount.value } };
+  return { ok: true as const, value: { ...parsed.data, amount: amount.value, installmentYears: parsed.data.installmentYears ?? 0 } };
 }
 
 const cancelSchema = z.object({
@@ -104,7 +117,7 @@ const saleSchema = z.object({
   bookingId: z.string().uuid("Choose a booking."),
   listPrice: z.string().trim(),
   discount: z.string().trim().optional().default("0"),
-  installments: z.array(installmentSchema).min(1, "Add at least one installment.").max(36, "Use 36 installments or fewer."),
+  installments: z.array(installmentSchema).min(1, "Add at least one installment.").max(121, "Use 121 installments or fewer."),
 });
 
 export function parseSale(body: unknown) {

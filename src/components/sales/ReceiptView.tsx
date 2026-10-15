@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
 import { barcodeSvg } from "@/lib/barcode";
-import { loadCompanySlip, readSlipImage, saveCompanySlip, type CompanySlipProfile } from "@/lib/companySlip";
+import { companyLogoSvg, loadCompanySlip, readSlipImage, saveCompanySlip, type CompanySlipProfile } from "@/lib/companySlip";
 import { downloadSlipDocument, receiptRows, slipClock, slipDocumentScan, type SlipDownload } from "@/lib/receipt";
 import type { Receipt } from "@/lib/sales";
 
@@ -21,10 +21,11 @@ export function ReceiptView({ receipt }: { receipt: Receipt }) {
   );
 }
 
-export function SlipView({ slip }: { slip: SlipDownload }) {
+export function SlipView({ slip, completion }: { slip: SlipDownload; completion?: { completed: boolean; onComplete: () => void } }) {
   const [profile, setProfile] = useState<CompanySlipProfile | null>(null);
   const [qr, setQr] = useState("");
   const [imageError, setImageError] = useState("");
+  const [optionsOpen, setOptionsOpen] = useState(() => window.location.hash === "#slip-options");
   const rows = slip.rows;
   const clock = slipClock(slip.issuedAt);
   const title = slip.title;
@@ -58,17 +59,38 @@ export function SlipView({ slip }: { slip: SlipDownload }) {
     };
   }, [profile, slip]);
 
+  const action = new URLSearchParams(window.location.search).get("action");
+  const acted = useRef(false);
+
+  useEffect(() => {
+    if (!profile || acted.current) return;
+    if (action === "print") {
+      acted.current = true;
+      const timer = window.setTimeout(() => window.print(), 400);
+      return () => window.clearTimeout(timer);
+    }
+    if (action === "download" && (!profile.showQr || qr)) {
+      acted.current = true;
+      downloadSlipDocument(slip, profile, qr);
+    }
+  }, [action, profile, qr, slip]);
+
+  useEffect(() => {
+    if (!optionsOpen) return;
+    document.getElementById("slip-options")?.scrollIntoView({ block: "start" });
+  }, [optionsOpen]);
+
   if (!profile) return <p className="text-sm text-[#7d8b96]">Preparing slip…</p>;
 
   function update(patch: Partial<CompanySlipProfile>) {
     setProfile((current) => (current ? { ...current, ...patch } : current));
   }
 
-  async function onImage(file: File | undefined, field: "logo" | "stamp" | "signature") {
+  async function onImage(file: File | undefined, field: "stamp" | "signature") {
     if (!file) return;
     setImageError("");
     try {
-      const dataUrl = await readSlipImage(file, field === "logo" ? 280 : 220);
+      const dataUrl = await readSlipImage(file, 220);
       update({ [field]: dataUrl });
     } catch (error) {
       setImageError(error instanceof Error ? error.message : "Could not read the image.");
@@ -76,177 +98,277 @@ export function SlipView({ slip }: { slip: SlipDownload }) {
   }
 
   const barcode = barcodeSvg(slip.serial);
+  const amount = rowValue(rows, "This receipt") || "—";
+  const method = rowValue(rows, "Method");
+  const company = profile.name || "Starline Builder's Limited";
+  const heading = title.toLowerCase().includes("refund") ? title : profile.slipTitle.trim() || "Payment slip";
+  const footer = profile.slipFooter.trim() || `Issued by ${company}`;
+  const signLabel = profile.signLabel.trim() || "Sign";
+  const stampLabel = profile.stampLabel.trim() || "Company stamp";
+  const template = profile.slipTemplate;
+  const party = title.toLowerCase().includes("refund") ? "Returned to" : "Received from";
+  const details = rows.filter((row) => !["This receipt", "Buyer", "Phone", "Method"].includes(row.label));
+  const done = Boolean(completion?.completed);
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-[22px] border border-[#99f6e4] bg-white p-4 print:hidden">
-        <h2 className="font-semibold text-[#0f766e]">Slip options</h2>
-        <p className="mt-1 text-sm text-[#5c6b76]">Company name, logo, signature, and stamp stay on this browser and print on every slip.</p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="block text-sm font-medium">
-            Company name
-            <input
-              value={profile.name}
-              onChange={(event) => update({ name: event.target.value })}
-              className="mt-1 h-11 w-full rounded-xl border border-[#d7e0e4] px-3"
-            />
-          </label>
-          <label className="block text-sm font-medium">
-            Authorised signatory
-            <input
-              value={profile.signatory}
-              onChange={(event) => update({ signatory: event.target.value })}
-              className="mt-1 h-11 w-full rounded-xl border border-[#d7e0e4] px-3"
-              placeholder="Name"
-            />
-          </label>
-          <label className="block text-sm font-medium">
-            Signatory title
-            <input
-              value={profile.signatoryTitle}
-              onChange={(event) => update({ signatoryTitle: event.target.value })}
-              className="mt-1 h-11 w-full rounded-xl border border-[#d7e0e4] px-3"
-            />
-          </label>
-          <ImageField label="Company logo" hasImage={Boolean(profile.logo)} onFile={(file) => onImage(file, "logo")} onClear={() => update({ logo: "" })} />
-          <ImageField label="Authorised signature" hasImage={Boolean(profile.signature)} onFile={(file) => onImage(file, "signature")} onClear={() => update({ signature: "" })} />
-          <ImageField label="Company stamp" hasImage={Boolean(profile.stamp)} onFile={(file) => onImage(file, "stamp")} onClear={() => update({ stamp: "" })} />
-        </div>
-        <div className="mt-3 flex flex-wrap gap-3 text-sm font-medium">
-          <Toggle label="Barcode" checked={profile.showBarcode} onChange={(showBarcode) => update({ showBarcode })} />
-          <Toggle label="QR code" checked={profile.showQr} onChange={(showQr) => update({ showQr })} />
-          <Toggle label="Authorised sign" checked={profile.showSignature} onChange={(showSignature) => update({ showSignature })} />
-          <Toggle label="Company stamp" checked={profile.showStamp} onChange={(showStamp) => update({ showStamp })} />
-        </div>
-        {imageError ? <p className="mt-3 text-sm text-[#b42318]">{imageError}</p> : null}
-      </section>
-
-      <article className="receipt-sheet mx-auto max-w-3xl overflow-hidden rounded-[22px] border border-[#99f6e4] bg-white shadow-[0_16px_40px_rgba(15,118,110,0.08)] print:max-w-none print:rounded-none print:border-0 print:shadow-none">
-        <div className="flex items-start justify-between gap-3 bg-gradient-to-r from-[#047857] via-[#0f766e] to-[#2563eb] px-6 py-5 text-white print:bg-white print:text-[#10231f]">
-          <div className="flex min-w-0 items-start gap-3">
-            {profile.logo ? <img src={profile.logo} alt="" className="h-16 w-16 rounded-2xl bg-white object-contain p-1" /> : null}
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/75 print:text-[#0f766e]">{title}</p>
-              <h1 className="mt-1 text-2xl font-semibold tracking-tight">{profile.name || "Starline Property"}</h1>
-              <p className="mt-2 text-base font-semibold text-white print:text-[#10231f]">{slip.buyerName}</p>
-              <p className="text-sm text-white/90 print:text-[#334155]">Phone {slip.buyerPhone}</p>
-              <p className="mt-1 text-sm text-white/85 print:text-[#334155]">Serial {slip.serial}</p>
-            </div>
-          </div>
-          <div className="flex gap-2 print:hidden">
-            <Button variant="secondary" onClick={() => window.print()}>
-              Print
-            </Button>
-            <Button onClick={() => downloadSlipDocument(slip, profile, qr)}>Download</Button>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2 px-6 pt-4">
-          <span className="rounded-full bg-[#ccfbf1] px-3 py-1 text-xs font-semibold text-[#115e59]">Buyer {slip.buyerName}</span>
-          <span className="rounded-full bg-[#fce7f3] px-3 py-1 text-xs font-semibold text-[#9d174d]">Phone {slip.buyerPhone}</span>
-          <span className="rounded-full bg-[#d1fae5] px-3 py-1 text-xs font-semibold text-[#065f46]">Date {clock.date}</span>
-          <span className="rounded-full bg-[#dbeafe] px-3 py-1 text-xs font-semibold text-[#1e3a8a]">Time {clock.time}</span>
-          <span className="rounded-full bg-[#ede9fe] px-3 py-1 text-xs font-semibold text-[#5b21b6]">Serial {slip.serial}</span>
-        </div>
-        <div className="mt-4 grid gap-3 px-6 sm:grid-cols-3">
-          <Highlight label="Buyer" value={slip.buyerName} detail={slip.buyerPhone} tone="bg-[#f0fdfa] text-[#115e59]" />
-          <Highlight label="Project" value={rowValue(rows, "Project") || "—"} detail={rowValue(rows, "Unit")} tone="bg-[#eff6ff] text-[#1e3a8a]" />
-          <Highlight label="Amount" value={rowValue(rows, "This receipt") || "—"} detail={rowValue(rows, "Method")} tone="bg-[#ecfdf5] text-[#065f46]" />
-        </div>
-        {profile.showBarcode || profile.showQr ? (
-          <div className="mt-4 grid gap-4 px-6 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-end">
-            {profile.showBarcode && barcode ? (
-              <div>
-                <div className="max-w-sm [&_svg]:h-14 [&_svg]:w-full" dangerouslySetInnerHTML={{ __html: barcode }} />
-                <p className="mt-1 font-mono text-xs tracking-wide text-[#334155]">{slip.serial}</p>
-              </div>
-            ) : <span />}
-            {profile.showQr && qr ? (
-              <div className="justify-self-start sm:justify-self-end">
-                <img src={qr} alt={`QR code for serial ${slip.serial}`} className="h-36 w-36 rounded-xl border border-[#dbeafe] bg-white p-1" />
-                <p className="mt-1 text-center text-[11px] font-medium text-[#1e3a8a]">Scan for all details</p>
-              </div>
-            ) : null}
-          </div>
+    <div className="space-y-5">
+      <style>{`@media print { @page { size: ${profile.paper === "letter" ? "letter" : "A4"}; margin: 12mm; } }`}</style>
+      <article className={`receipt-sheet relative mx-auto w-full max-w-[680px] overflow-hidden print:max-w-none print:shadow-none ${template === "classic" ? "bg-[#fffaf3] shadow-[0_28px_70px_rgba(8,36,32,0.16)]" : "border border-[#d7e0e4] bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]"}`}>
+        {template === "classic" ? (
+          <>
+            <div className="pointer-events-none absolute inset-3 border border-[#d4b483]" />
+            <div className="pointer-events-none absolute inset-[18px] border border-[#eadcc4]" />
+          </>
         ) : null}
-        <dl className="mt-4 grid gap-2 px-6">
-          {rows.map((row) => (
-            <div key={row.label} className="grid gap-1 rounded-2xl bg-[#f8fafc] px-4 py-3 sm:grid-cols-[180px_minmax(0,1fr)]">
-              <dt className="text-sm font-medium text-[#64748b]">{row.label}</dt>
-              <dd className="text-sm font-semibold text-[#0f172a]">{row.value}</dd>
-            </div>
-          ))}
-        </dl>
-        <div className="mt-2 grid gap-6 px-6 py-6 sm:grid-cols-2">
-          {profile.showSignature ? (
-            <div>
-              <div className="grid h-28 place-items-center rounded-2xl border border-dashed border-[#94a3b8] bg-[#f8fafc]">
-                {profile.signature ? <img src={profile.signature} alt="" className="max-h-24 max-w-[220px] object-contain" /> : <span className="text-xs text-[#94a3b8]">Authorised sign</span>}
-              </div>
-              <p className="mt-2 text-sm font-semibold">Authorised sign</p>
-              <p className="text-sm text-[#475569]">{profile.signatory || "Signatory"}</p>
-              <p className="text-xs text-[#64748b]">{profile.signatoryTitle || "Authorised signatory"}</p>
+        <SlipBanner template={template} profile={profile} company={company} heading={heading} amount={amount} method={method} done={done} />
+        <div className="relative grid grid-cols-3 divide-x divide-[#eadcc4] border-b border-[#eadcc4] bg-[#fffaf3] text-center">
+          <Meta label="Date" value={clock.date} />
+          <Meta label="Time" value={clock.time || "—"} />
+          <Meta label="Serial" value={slip.serial} mono />
+        </div>
+        <div className="relative px-8 py-8 sm:px-10">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#8a7340]">{party}</p>
+          <p className="mt-1 font-serif text-3xl leading-tight text-[#16302c]">{slip.buyerName}</p>
+          <p className="mt-1 text-sm tracking-wide text-[#5c5346]">{slip.buyerPhone}</p>
+          {details.length ? (
+            <dl className="mt-7 divide-y divide-[#efe4cf] border-y border-[#efe4cf]">
+              {details.map((row) => (
+                <div key={row.label} className="grid gap-1 py-3 sm:grid-cols-[160px_minmax(0,1fr)] sm:items-baseline">
+                  <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8a7340]">{row.label}</dt>
+                  <dd className="text-sm font-semibold text-[#16302c]">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+          {profile.showBarcode || (profile.showQr && qr) ? (
+            <div className="mt-7 flex flex-wrap items-end justify-between gap-4">
+              {profile.showBarcode && barcode ? (
+                <div className="min-w-0 flex-1">
+                  <div className="max-w-xs [&_svg]:h-12 [&_svg]:w-full" dangerouslySetInnerHTML={{ __html: barcode }} />
+                </div>
+              ) : <span />}
+              {profile.showQr && qr ? (
+                <img src={qr} alt={`QR code for serial ${slip.serial}`} className="h-24 w-24 bg-white p-1" />
+              ) : null}
             </div>
           ) : null}
-          {profile.showStamp ? (
+          <div className="mt-14 grid grid-cols-2 gap-10 sm:gap-20">
             <div>
-              <div className="grid h-28 place-items-center rounded-full border border-dashed border-[#0f766e] bg-[#f0fdfa]">
-                {profile.stamp ? <img src={profile.stamp} alt="" className="max-h-24 max-w-[160px] object-contain" /> : <span className="text-xs font-semibold text-[#0f766e]">Company stamp</span>}
+              <div className="flex h-24 items-end">
+                {profile.signature ? <img src={profile.signature} alt="" className="max-h-20 max-w-[180px] object-contain" /> : null}
               </div>
-              <p className="mt-2 text-sm font-semibold">Company stamp</p>
+              <div className="border-t border-[#16302c]" />
+              <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8a7340]">{signLabel}</p>
+              {profile.signatory.trim() ? <p className="mt-1 text-sm font-semibold text-[#16302c]">{profile.signatory}</p> : null}
             </div>
-          ) : null}
+            <div className="text-right">
+              <div className="flex h-24 items-end justify-end">
+                {profile.stamp ? <img src={profile.stamp} alt="" className="max-h-20 max-w-[140px] object-contain" /> : null}
+              </div>
+              <div className="border-t border-[#16302c]" />
+              <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8a7340]">{stampLabel}</p>
+            </div>
+          </div>
+          <p className="mt-10 text-center text-[11px] font-medium uppercase tracking-[0.22em] text-[#a08b62]">{footer}</p>
         </div>
       </article>
+
+      <div className="mx-auto flex max-w-[680px] flex-wrap items-center justify-center gap-3 print:hidden">
+        {completion ? (
+          <Button type="button" disabled={done} onClick={completion.onComplete} className="min-w-44">
+            {done ? "Payment complete" : "Complete payment"}
+          </Button>
+        ) : null}
+        <Button variant="secondary" className="min-w-32" onClick={() => window.print()}>
+          Print
+        </Button>
+        <button type="button" onClick={() => downloadSlipDocument(slip, profile, qr)} className="h-11 px-2 text-sm font-semibold text-[#0f766e]">
+          Download
+        </button>
+      </div>
+      {done ? (
+        <p className="text-center text-sm font-medium text-[#047857] print:hidden">This payment is complete and kept in history. It is not added to collected money.</p>
+      ) : null}
+
+      <div className="mx-auto max-w-[680px] text-center print:hidden">
+        <button type="button" onClick={() => setOptionsOpen((open) => !open)} className="text-sm font-semibold text-[#0f766e]">
+          {optionsOpen ? "Hide company name" : "Company name"}
+        </button>
+        {optionsOpen ? (
+          <section id="slip-options" className="mt-3 rounded-[22px] border border-[#eadcc4] bg-white p-4 text-left">
+            <p className="text-sm text-[#5c5346]">The sign and stamp places on the slip stay empty. Add a file here only when you want it printed in that place.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm font-medium sm:col-span-2">
+                Company name
+                <input
+                  value={profile.name}
+                  onChange={(event) => update({ name: event.target.value })}
+                  className="mt-1 h-11 w-full rounded-xl border border-[#d7e0e4] px-3"
+                />
+              </label>
+              <label className="block text-sm font-medium sm:col-span-2">
+                Location
+                <input
+                  value={profile.location}
+                  onChange={(event) => update({ location: event.target.value })}
+                  placeholder="Office location"
+                  className="mt-1 h-11 w-full rounded-xl border border-[#d7e0e4] px-3"
+                />
+              </label>
+              <label className="block text-sm font-medium sm:col-span-2">
+                Finance name
+                <input
+                  value={profile.signatory}
+                  onChange={(event) => update({ signatory: event.target.value })}
+                  placeholder="Name under the sign"
+                  className="mt-1 h-11 w-full rounded-xl border border-[#d7e0e4] px-3"
+                />
+              </label>
+              <label className="block text-sm font-medium">
+                Sign
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(event) => {
+                    onImage(event.target.files?.[0], "signature");
+                    event.target.value = "";
+                  }}
+                  className="mt-1 block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#ccfbf1] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[#0f766e]"
+                />
+              </label>
+              <label className="block text-sm font-medium">
+                Company stamp
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(event) => {
+                    onImage(event.target.files?.[0], "stamp");
+                    event.target.value = "";
+                  }}
+                  className="mt-1 block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#ccfbf1] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[#0f766e]"
+                />
+              </label>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-3 text-sm font-medium">
+              <Toggle label="Barcode" checked={profile.showBarcode} onChange={(showBarcode) => update({ showBarcode })} />
+              <Toggle label="QR code" checked={profile.showQr} onChange={(showQr) => update({ showQr })} />
+            </div>
+            {imageError ? <p className="mt-3 text-sm text-[#b42318]">{imageError}</p> : null}
+          </section>
+        ) : null}
+      </div>
     </div>
   );
 }
 
-function Highlight({ label, value, detail, tone }: { label: string; value: string; detail?: string; tone: string }) {
+function SlipBanner({
+  template,
+  profile,
+  company,
+  heading,
+  amount,
+  method,
+  done,
+}: {
+  template: CompanySlipProfile["slipTemplate"];
+  profile: CompanySlipProfile;
+  company: string;
+  heading: string;
+  amount: string;
+  method: string;
+  done: boolean;
+}) {
+  const logo = <SlipMark logo={profile.logo} place={template} />;
+  if (template === "compact") {
+    return (
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[#d7e0e4] bg-[#f8fafc] px-6 py-5">
+        <div className="flex min-w-0 items-center gap-3">
+          {logo}
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-semibold text-[#10231f]">{company}</h1>
+            {profile.location.trim() ? <p className="truncate text-sm text-[#64748b]">{profile.location.trim()}</p> : null}
+            {contactLine(profile) ? <p className="truncate text-xs text-[#64748b]">{contactLine(profile)}</p> : null}
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#0f766e]">{heading}</p>
+          <p className="mt-1 font-serif text-3xl leading-none text-[#10231f]">{amount}</p>
+          {method ? <p className="mt-1 text-sm text-[#64748b]">{method}</p> : null}
+        </div>
+      </header>
+    );
+  }
+  if (template === "clean") {
+    return (
+      <header className="border-b-[3px] border-[#0f766e] px-8 py-8 text-center">
+        <div className="mx-auto w-fit">{logo}</div>
+        <h1 className="mt-4 font-serif text-3xl text-[#10231f]">{company}</h1>
+        {profile.location.trim() ? <p className="mt-1 text-sm text-[#5c5346]">{profile.location.trim()}</p> : null}
+        {contactLine(profile) ? <p className="mt-1 text-sm text-[#5c5346]">{contactLine(profile)}</p> : null}
+        <p className="mt-5 text-[12px] font-semibold uppercase tracking-[0.32em] text-[#0f766e]">{heading}</p>
+        <p className="mt-2 font-serif text-5xl leading-none text-[#10231f]">{amount}</p>
+        {method ? <p className="mt-2 text-sm text-[#5c5346]">{method}</p> : null}
+      </header>
+    );
+  }
   return (
-    <div className={`rounded-2xl px-4 py-3 ${tone}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] opacity-70">{label}</p>
-      <p className="mt-1 text-base font-semibold">{value}</p>
-      {detail ? <p className="mt-0.5 text-sm opacity-80">{detail}</p> : null}
+    <header className="relative overflow-hidden bg-[#0c3b34] px-8 pb-8 pt-9 text-white sm:px-10">
+      <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-[#d4b483]/25" />
+      <div className="pointer-events-none absolute bottom-0 left-0 h-px w-full bg-gradient-to-r from-transparent via-[#d4b483] to-transparent" />
+      <div className="relative text-center">
+        <div className="mx-auto w-fit">{logo}</div>
+        <h1 className="mt-4 text-[1.7rem] font-semibold leading-tight tracking-tight">{company}</h1>
+        {profile.location.trim() ? <p className="mt-1 text-sm text-[#e7d3ae]">{profile.location.trim()}</p> : null}
+        {contactLine(profile) ? <p className="mt-1 text-sm text-white/80">{contactLine(profile)}</p> : null}
+        <p className="mt-6 text-[12px] font-semibold uppercase tracking-[0.42em] text-[#e7d3ae]">{heading}</p>
+        <p className="mt-3 font-serif text-5xl leading-none tracking-tight sm:text-6xl">{amount}</p>
+        {method ? <p className="mt-3 text-sm text-white/80">{method}</p> : null}
+      </div>
+      {done ? (
+        <div className="absolute right-8 top-8 grid h-[4.5rem] w-[4.5rem] rotate-[-14deg] place-items-center rounded-full border-2 border-[#e7d3ae] text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e7d3ae] sm:right-10">
+          Complete
+        </div>
+      ) : null}
+    </header>
+  );
+}
+
+function Meta({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="px-3 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8a7340]">{label}</p>
+      <p className={`mt-1 text-xs font-semibold text-[#16302c] sm:text-sm ${mono ? "break-all font-mono text-[11px] sm:text-xs" : ""}`}>{value}</p>
     </div>
   );
+}
+
+function contactLine(profile: CompanySlipProfile) {
+  const parts = [profile.phone.trim(), profile.email.trim()].filter(Boolean);
+  if (profile.registrationNumber.trim()) parts.push(profile.registrationNumber.trim());
+  return parts.join(" · ");
+}
+
+function SlipMark({ logo, place }: { logo: string; place: CompanySlipProfile["slipTemplate"] }) {
+  if (!logo) {
+    return (
+      <span className={`grid shrink-0 place-items-center rounded-2xl bg-white ${place === "compact" ? "h-14 w-14" : "h-16 w-16"}`}>
+        <CompanyLogo />
+      </span>
+    );
+  }
+  const frame = place === "classic"
+    ? "rounded-2xl shadow-[0_14px_32px_rgba(0,0,0,0.28)] ring-2 ring-white/90"
+    : "rounded-2xl shadow-[0_8px_20px_rgba(15,23,42,0.08)] ring-1 ring-[#e2e8f0]";
+  const size = place === "compact" ? "h-16 max-w-[9.5rem]" : "h-24 max-w-[15rem]";
+  return <img src={logo} alt="" className={`block w-auto object-contain ${size} ${frame}`} />;
+}
+
+function CompanyLogo() {
+  return <span className="inline-flex shrink-0" dangerouslySetInnerHTML={{ __html: companyLogoSvg }} />;
 }
 
 function rowValue(rows: { label: string; value: string }[], label: string) {
   return rows.find((row) => row.label === label)?.value ?? "";
-}
-
-function ImageField({
-  label,
-  hasImage,
-  onFile,
-  onClear,
-}: {
-  label: string;
-  hasImage: boolean;
-  onFile: (file: File | undefined) => void;
-  onClear: () => void;
-}) {
-  return (
-    <label className="block text-sm font-medium">
-      <span>{label}</span>
-      <div className="mt-1 flex items-center gap-2">
-        <input
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          onChange={(event) => {
-            onFile(event.target.files?.[0]);
-            event.target.value = "";
-          }}
-          className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#ccfbf1] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[#0f766e]"
-        />
-        {hasImage ? (
-          <button type="button" onClick={onClear} className="text-xs font-semibold text-[#be123c]">
-            Remove
-          </button>
-        ) : null}
-      </div>
-    </label>
-  );
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {

@@ -48,7 +48,10 @@ export function createApp() {
   const smallJson = express.json({ limit: "20kb" });
   const receiptJson = express.json({ limit: "2mb" });
   app.use((req, res, next) => {
-    if (req.method === "POST" && (req.path === "/api/files" || /\/api\/expenses\/[^/]+\/receipt$/.test(req.path))) {
+    if (
+      req.method === "POST" &&
+      (req.path === "/api/files" || req.path === "/api/expenses/import" || /\/api\/expenses\/[^/]+\/receipt$/.test(req.path))
+    ) {
       receiptJson(req, res, next);
       return;
     }

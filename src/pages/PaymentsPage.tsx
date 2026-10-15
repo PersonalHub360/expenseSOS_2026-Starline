@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { Banknote, MapPin, Undo2, UserRound } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useAuth } from "@/auth/AuthContext";
 import { CreateSlipForm } from "@/components/sales/CreateSlipForm";
+import { Button } from "@/components/ui/button";
 import { can } from "@/lib/access";
 import { api } from "@/lib/api";
 import { addMoney, formatTaka, subtractMoney } from "@/lib/money";
@@ -69,7 +70,9 @@ export function PaymentsPage() {
   const { user } = useAuth();
   const [lines, setLines] = useState<RegisterLine[] | null>(null);
   const [error, setError] = useState("");
+  const [panel, setPanel] = useState<"register" | "slips">("register");
   const [kind, setKind] = useState<"all" | "Payment" | "Refund">("all");
+  const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [manualSlips, setManualSlips] = useState<ManualSlip[]>([]);
   const allowed = can(user, "payments", "view");
@@ -134,34 +137,181 @@ export function PaymentsPage() {
   const collected = addMoney(payments.map((line) => line.amount));
   const refunded = addMoney(refunds.map((line) => line.amount));
   const net = subtractMoney(collected, refunded);
-  const shown = (lines ?? []).filter((line) => kind === "all" || line.kind === kind);
+  const needle = query.trim().toLowerCase();
+  const shown = (lines ?? []).filter((line) => {
+    if (kind !== "all" && line.kind !== kind) return false;
+    if (!needle) return true;
+    const text = [line.receiptNumber, line.buyerName, line.buyerPhone, line.projectName, line.unitNumber, line.reference, line.note, line.method].join(" ").toLowerCase();
+    return text.includes(needle);
+  });
 
   return (
     <div className="space-y-5">
       <header className="overflow-hidden rounded-[28px] bg-gradient-to-r from-[#047857] via-[#0f766e] to-[#2563eb] p-5 text-white shadow-[0_16px_40px_rgba(4,120,87,0.22)] sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/75">Sales</p>
             <h1 className="mt-1 text-3xl font-semibold tracking-tight">Payments</h1>
-            <p className="mt-1 max-w-xl text-sm text-white/80">Collections, refunds, receipt method, buyer, and the unit each payment belongs to.</p>
+            <p className="mt-1 max-w-xl text-sm text-white/80">Collections, refunds, and local slips. A slip is a document and is not added to collected money.</p>
           </div>
           {canCreate ? (
-            <button type="button" onClick={() => setCreating(true)} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#0f766e] hover:bg-[#ecfdf5]">
-              Create Slip
-            </button>
+            <Button className="bg-white text-[#0f766e] hover:bg-[#ecfdf5]" onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              Create slip
+            </Button>
           ) : null}
         </div>
         {lines ? (
-          <div className="mt-5 flex flex-wrap gap-2 text-xs font-semibold">
-            <span className="rounded-full bg-white/15 px-3 py-1">{lines.length} receipts</span>
-            <span className="rounded-full bg-[#d1fae5] px-3 py-1 text-[#065f46]">{payments.length} payments</span>
-            <span className="rounded-full bg-[#ffe4e6] px-3 py-1 text-[#9f1239]">{refunds.length} refunds</span>
-            <span className="rounded-full bg-[#d1fae5] px-3 py-1 text-[#065f46]">Collected {formatTaka(collected)}</span>
-            <span className="rounded-full bg-[#ffedd5] px-3 py-1 text-[#9a3412]">Refunded {formatTaka(refunded)}</span>
-            <span className="rounded-full bg-[#dbeafe] px-3 py-1 text-[#1e3a8a]">Net {formatTaka(net)}</span>
-          </div>
+          <dl className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Stat label="Receipts" value={String(lines.length)} />
+            <Stat label="Collected" value={formatTaka(collected)} />
+            <Stat label="Refunded" value={formatTaka(refunded)} warn={refunds.length > 0} />
+            <Stat label="Net" value={formatTaka(net)} />
+          </dl>
         ) : null}
       </header>
+
+      {error ? <p className="rounded-xl bg-[#fdeceb] px-3 py-2 text-sm text-[#b42318]">{error}</p> : null}
+
+      <div className="flex gap-2">
+        <TabButton active={panel === "register"} onClick={() => setPanel("register")} count={lines?.length ?? 0} tone="teal">
+          Register
+        </TabButton>
+        <TabButton active={panel === "slips"} onClick={() => setPanel("slips")} count={manualSlips.length} tone="violet">
+          Slips
+        </TabButton>
+      </div>
+
+      {panel === "register" ? (
+        <section className="overflow-hidden rounded-[24px] border border-[#a7f3d0] bg-white shadow-[0_12px_32px_rgba(4,120,87,0.06)]">
+          <div className="flex flex-col gap-3 border-b border-[#d1fae5] bg-[#f0fdf8] px-4 py-4 sm:px-5">
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ["all", "All"],
+                  ["Payment", "Payments"],
+                  ["Refund", "Refunds"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={kind === id}
+                  onClick={() => setKind(id)}
+                  className={cn("rounded-full px-3 py-1 text-xs font-semibold", kind === id ? "bg-[#0f766e] text-white" : "bg-white text-[#0f766e] ring-1 ring-[#99f6e4]")}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <input
+              className="h-11 w-full rounded-xl border border-[#a7f3d0] bg-white px-3 text-sm outline-none focus:border-[#0f766e] sm:max-w-md"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search receipt, buyer, phone, project, or unit"
+              aria-label="Search payments"
+            />
+          </div>
+          {lines === null ? (
+            <p className="px-5 py-8 text-sm text-[#7d8b96]">Loading payments…</p>
+          ) : shown.length === 0 ? (
+            <p className="px-5 py-12 text-center text-sm text-[#7d8b96]">No receipts match these filters.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1080px] text-left text-sm">
+                <thead className="text-[11px] uppercase tracking-[0.14em] text-[#0f766e]">
+                  <tr>
+                    {["Date", "Receipt", "Buyer", "Place", "Method", "Amount", "Actions"].map((label) => (
+                      <th key={label} className="px-4 py-3 font-semibold">
+                        {label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((line) => {
+                    const payment = line.kind === "Payment";
+                    const place = [line.projectName, line.unitNumber].filter(Boolean).join(" · ");
+                    return (
+                      <tr key={`${line.kind}-${line.id}`} className="border-t border-[#d1fae5]">
+                        <td className="px-4 py-3 text-[#115e59]">{formatTimestamp(line.at).slice(0, 11)}</td>
+                        <td className="px-4 py-3">
+                          <Link href={line.href} className="font-semibold text-[#0f766e] hover:underline">
+                            {line.receiptNumber}
+                          </Link>
+                          <p className="mt-0.5 text-xs text-[#64748b]">{line.reference || line.kind}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          {line.buyerId ? (
+                            <Link href={`/buyers/${line.buyerId}`} className="font-medium text-[#0f766e] hover:underline">
+                              {line.buyerName || "Buyer"}
+                            </Link>
+                          ) : (
+                            <span className="text-[#334155]">{line.buyerName || "—"}</span>
+                          )}
+                          {line.buyerPhone ? <p className="mt-0.5 text-xs text-[#9d174d]">{line.buyerPhone}</p> : null}
+                        </td>
+                        <td className="px-4 py-3 text-[#115e59]">{place || "—"}</td>
+                        <td className="px-4 py-3">
+                          <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold", methodTones[line.method] ?? "bg-[#f1f5f9] text-[#334155]")}>
+                            {methodLabel(line.method)}
+                          </span>
+                        </td>
+                        <td className={cn("px-4 py-3 font-semibold", payment ? "text-[#047857]" : "text-[#c2410c]")}>
+                          {payment ? formatTaka(line.amount) : `Refund ${formatTaka(line.amount)}`}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-nowrap justify-end gap-1.5">
+                            <ActionLink href={line.href}>View</ActionLink>
+                            <ActionLink href={`${line.href}#slip-options`}>Edit</ActionLink>
+                            <ActionLink href={`${line.href}?action=print`}>Print</ActionLink>
+                            <ActionLink href={`${line.href}?action=download`}>Download</ActionLink>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      ) : (
+        <section className="rounded-[24px] border border-[#ddd6fe] bg-white p-4 shadow-[0_12px_32px_rgba(91,33,182,0.05)] sm:p-5">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6d28d9]">Documents</p>
+              <h2 className="text-lg font-semibold text-[#5b21b6]">Created slips</h2>
+              <p className="mt-1 text-sm text-[#6d28d9]/80">These stay on this browser. A refund slip is not taken out of collected money.</p>
+            </div>
+          </div>
+          {manualSlips.length === 0 ? (
+            <p className="py-10 text-center text-sm text-[#7d8b96]">No slips yet. Create slip adds a payment or refund document.</p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {manualSlips.map((slip) => (
+                <Link key={slip.id} href={`/payments/slips/${slip.id}`} className="rounded-2xl border border-[#ddd6fe] bg-[#f5f3ff] px-4 py-3">
+                  <span className="flex flex-wrap gap-1.5">
+                    <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold", slip.kind === "refund" ? "bg-[#ffedd5] text-[#c2410c]" : "bg-[#d1fae5] text-[#047857]")}>
+                      {slip.kind === "refund" ? "Refund slip" : "Payment slip"}
+                    </span>
+                    <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold", slip.completed ? "bg-[#dbeafe] text-[#1d4ed8]" : "bg-[#f1f5f9] text-[#64748b]")}>
+                      {slip.completed ? "Complete" : "Open"}
+                    </span>
+                  </span>
+                  <span className="mt-2 block font-semibold text-[#5b21b6]">{slip.serial}</span>
+                  <span className="mt-1 block text-sm text-[#334155]">
+                    {slip.buyerName}
+                    {slip.buyerPhone ? ` · ${slip.buyerPhone}` : ""}
+                  </span>
+                  <span className={cn("mt-2 block text-sm font-semibold", slip.kind === "refund" ? "text-[#c2410c]" : "text-[#0f766e]")}>{formatTaka(slip.amount)}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {creating ? (
         <CreateSlipForm
           onClose={() => {
@@ -170,108 +320,46 @@ export function PaymentsPage() {
           }}
         />
       ) : null}
-      {error ? <p className="rounded-xl bg-[#fdeceb] px-3 py-2 text-sm text-[#b42318]">{error}</p> : null}
-      {manualSlips.length > 0 ? (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-[#5b21b6]">Created slips</h2>
-          <div className="grid gap-3">
-            {manualSlips.map((slip) => (
-              <Link key={slip.id} href={`/payments/slips/${slip.id}`} className="rounded-[22px] border border-[#ddd6fe] bg-white px-4 py-3 shadow-[0_10px_28px_rgba(22,40,36,0.04)]">
-                <span className="font-semibold text-[#5b21b6]">{slip.serial}</span>
-                <span className="mt-1 block text-sm text-[#334155]">
-                  {slip.buyerName} · {slip.buyerPhone}
-                </span>
-                <span className={`mt-1 block text-sm font-semibold ${slip.kind === "refund" ? "text-[#c2410c]" : "text-[#0f766e]"}`}>
-                  {slip.kind === "refund" ? `Refund ${formatTaka(slip.amount)}` : formatTaka(slip.amount)}
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      ) : null}
-      <div className="flex flex-wrap gap-2">
-        <FilterButton active={kind === "all"} onClick={() => setKind("all")} label="All" />
-        <FilterButton active={kind === "Payment"} onClick={() => setKind("Payment")} label="Payments" />
-        <FilterButton active={kind === "Refund"} onClick={() => setKind("Refund")} label="Refunds" />
-      </div>
-      {lines === null ? (
-        <p className="text-sm text-[#7d8b96]">Loading payments…</p>
-      ) : shown.length === 0 ? (
-        <section className="rounded-[22px] border border-[#eef1f4] bg-white px-4 py-10 text-center">
-          <p className="font-semibold">No receipts yet</p>
-          <p className="mt-1 text-sm text-[#7d8b96]">A booking receipt is created when a unit is booked.</p>
-        </section>
-      ) : (
-        <div className="grid gap-3">
-          {shown.map((line) => (
-            <ReceiptCard key={`${line.kind}-${line.id}`} line={line} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
 
-function FilterButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+function ActionLink({ href, children }: { href: string; children: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "rounded-full px-3 py-1.5 text-sm font-semibold",
-        active ? "bg-[#0f766e] text-white" : "bg-white text-[#0f766e] ring-1 ring-[#99f6e4]",
-      )}
-    >
-      {label}
-    </button>
+    <Link href={href} className="inline-flex h-8 items-center rounded-lg bg-white px-2.5 text-xs font-semibold text-[#0f766e] ring-1 ring-[#99f6e4] hover:bg-[#ecfdf5]">
+      {children}
+    </Link>
   );
 }
 
-function ReceiptCard({ line }: { line: RegisterLine }) {
-  const payment = line.kind === "Payment";
-  const place = [line.projectName, line.unitNumber].filter(Boolean).join(" · ");
+function Stat({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
   return (
-    <article className={cn("overflow-hidden rounded-[22px] border bg-white shadow-[0_10px_28px_rgba(22,40,36,0.04)]", payment ? "border-[#a7f3d0]" : "border-[#fecdd3]")}>
-      <div className={cn("h-1.5", payment ? "bg-gradient-to-r from-[#059669] to-[#34d399]" : "bg-gradient-to-r from-[#e11d48] to-[#fb7185]")} />
-      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={cn("grid h-9 w-9 place-items-center rounded-xl text-white", payment ? "bg-[#059669]" : "bg-[#e11d48]")}>
-              {payment ? <Banknote className="h-4 w-4" aria-hidden="true" /> : <Undo2 className="h-4 w-4" aria-hidden="true" />}
-            </span>
-            <Link href={line.href} className="font-semibold text-[#16302c] hover:text-[#047857]">
-              {line.receiptNumber}
-            </Link>
-            <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold", payment ? "bg-[#d1fae5] text-[#047857]" : "bg-[#ffe4e6] text-[#be123c]")}>
-              {line.kind}
-            </span>
-            <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold", methodTones[line.method] ?? "bg-[#f1f5f9] text-[#334155]")}>
-              {methodLabel(line.method)}
-            </span>
-          </div>
-          <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm text-[#5c6b76]">
-            {line.buyerId ? (
-              <Link href={`/buyers/${line.buyerId}`} className="inline-flex items-center gap-1 font-medium text-[#0f766e] hover:underline">
-                <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
-                {line.buyerName}
-                {line.buyerPhone ? <span className="font-semibold text-[#9d174d]">{line.buyerPhone}</span> : null}
-              </Link>
-            ) : (
-              <span>{line.buyerName || "No buyer"}</span>
-            )}
-            {place ? (
-              <span className="inline-flex items-center gap-1">
-                <MapPin className="h-3.5 w-3.5 text-[#2563eb]" aria-hidden="true" />
-                {place}
-              </span>
-            ) : null}
-            {line.reference ? <span>{line.reference}</span> : null}
-          </p>
-          <p className="mt-1 text-xs text-[#94a3b8]">{formatTimestamp(line.at)}</p>
-          {line.note ? <p className="mt-2 whitespace-pre-wrap text-sm text-[#475569]">{line.note}</p> : null}
-        </div>
-        <p className={cn("text-lg font-semibold tabular-nums", payment ? "text-[#047857]" : "text-[#be123c]")}>{formatTaka(line.amount)}</p>
-      </div>
-    </article>
+    <div className={cn("rounded-2xl px-3 py-2", warn ? "bg-[#ffedd5] text-[#9a3412]" : "bg-white/15 text-white")}>
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.14em] opacity-80">{label}</dt>
+      <dd className="mt-1 text-sm font-semibold">{value}</dd>
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  count,
+  tone,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  count: number;
+  tone: "teal" | "violet";
+  children: string;
+}) {
+  const on = tone === "teal" ? "bg-[#0f766e] text-white" : "bg-[#6d28d9] text-white";
+  const chip = tone === "teal" ? "bg-[#ecfdf5] text-[#0f766e]" : "bg-[#f5f3ff] text-[#6d28d9]";
+  return (
+    <button type="button" aria-pressed={active} onClick={onClick} className={cn("inline-flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold", active ? on : "bg-white text-[#334155] ring-1 ring-[#e2e8f0]")}>
+      {children}
+      <span className={cn("rounded-full px-2 py-0.5 text-[11px]", active ? "bg-white/20" : chip)}>{count}</span>
+    </button>
   );
 }

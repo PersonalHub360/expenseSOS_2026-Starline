@@ -1,5 +1,18 @@
+export type SlipPaper = "a4" | "letter";
+export type SlipTemplate = "classic" | "clean" | "compact";
+
 export type CompanySlipProfile = {
   name: string;
+  location: string;
+  phone: string;
+  email: string;
+  registrationNumber: string;
+  paper: SlipPaper;
+  slipTemplate: SlipTemplate;
+  slipTitle: string;
+  slipFooter: string;
+  signLabel: string;
+  stampLabel: string;
   logo: string;
   stamp: string;
   signature: string;
@@ -14,7 +27,17 @@ export type CompanySlipProfile = {
 const STORAGE_KEY = "starline.company.slip.v1";
 
 export const defaultCompanySlip: CompanySlipProfile = {
-  name: "Starline Property",
+  name: "Starline Builder's Limited",
+  location: "",
+  phone: "",
+  email: "",
+  registrationNumber: "",
+  paper: "a4",
+  slipTemplate: "classic",
+  slipTitle: "Payment slip",
+  slipFooter: "",
+  signLabel: "Sign",
+  stampLabel: "Company stamp",
   logo: "",
   stamp: "",
   signature: "",
@@ -22,9 +45,11 @@ export const defaultCompanySlip: CompanySlipProfile = {
   signatoryTitle: "Authorised signatory",
   showBarcode: true,
   showQr: true,
-  showSignature: true,
-  showStamp: true,
+  showSignature: false,
+  showStamp: false,
 };
+
+export const companyLogoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="48" height="48" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0f766e"/><path d="M8 22V14l8-6 8 6v8" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>`;
 
 export function loadCompanySlip(): CompanySlipProfile {
   try {
@@ -34,7 +59,17 @@ export function loadCompanySlip(): CompanySlipProfile {
     return {
       ...defaultCompanySlip,
       ...parsed,
-      name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name : defaultCompanySlip.name,
+      name: companyName(parsed.name),
+      location: text(parsed.location),
+      phone: text(parsed.phone),
+      email: text(parsed.email),
+      registrationNumber: text(parsed.registrationNumber),
+      paper: parsed.paper === "letter" ? "letter" : "a4",
+      slipTemplate: parsed.slipTemplate === "clean" || parsed.slipTemplate === "compact" ? parsed.slipTemplate : "classic",
+      slipTitle: text(parsed.slipTitle) || "Payment slip",
+      slipFooter: text(parsed.slipFooter),
+      signLabel: text(parsed.signLabel) || "Sign",
+      stampLabel: text(parsed.stampLabel) || "Company stamp",
       logo: imageOrEmpty(parsed.logo),
       stamp: imageOrEmpty(parsed.stamp),
       signature: imageOrEmpty(parsed.signature),
@@ -82,6 +117,17 @@ export function readSlipImage(file: File, maxEdge: number) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+function text(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function companyName(value: unknown) {
+  if (typeof value !== "string") return defaultCompanySlip.name;
+  const name = value.trim();
+  if (!name || name === "Starline Property") return defaultCompanySlip.name;
+  return name;
 }
 
 function imageOrEmpty(value: unknown) {

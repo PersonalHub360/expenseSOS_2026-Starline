@@ -4,9 +4,9 @@ import { Router, type Request, type Response } from "express";
 import { allows } from "../access";
 import { requireAuth, requirePermission, type Principal } from "../auth/principal";
 import { db } from "../db/client";
-import { bookings, buyers, sales } from "../db/schema";
+import { buyers } from "../db/schema";
 import { compareMoney } from "../projects/money";
-import { cancelBooking, createBooking, createSale, deleteBooking, deleteSale, recordPayment, updateBooking, updateSale } from "./commands";
+import { cancelBooking, createBooking, createSale, deleteBooking, deleteBuyer, deleteSale, recordPayment, updateBooking, updateSale } from "./commands";
 import {
   getBooking,
   getBuyer,
@@ -93,19 +93,12 @@ buyersRouter.delete("/:id", requirePermission("buyers", "delete"), async (req, r
     res.status(404).json({ error: "Buyer not found." });
     return;
   }
-  const [existing] = await db.select({ id: buyers.id }).from(buyers).where(eq(buyers.id, id)).limit(1);
-  if (!existing) {
-    res.status(404).json({ error: "Buyer not found." });
+  const removed = await deleteBuyer(id);
+  if (!removed.ok) {
+    res.status(removed.status).json({ error: removed.error });
     return;
   }
-  const [booking] = await db.select({ id: bookings.id }).from(bookings).where(eq(bookings.buyerId, id)).limit(1);
-  const [sale] = await db.select({ id: sales.id }).from(sales).where(eq(sales.buyerId, id)).limit(1);
-  if (booking || sale) {
-    res.status(409).json({ error: "This buyer has bookings or sales and cannot be removed." });
-    return;
-  }
-  await db.delete(buyers).where(eq(buyers.id, id));
-  await writeAudit({ actorId: actor(res), action: "delete", subjectType: "buyer", subjectId: id, summary: "Buyer deleted" });
+  await writeAudit({ actorId: actor(res), action: "delete", subjectType: "buyer", subjectId: removed.id, summary: "Buyer deleted" });
   res.json({ ok: true });
 });
 

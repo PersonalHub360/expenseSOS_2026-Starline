@@ -1,15 +1,12 @@
-import { type DragEvent, type FormEvent, useState } from "react";
+import { type DragEvent, type FormEvent, useEffect, useMemo, useState } from "react";
 import { Building2, CalendarClock, FileText, ImagePlus, UserRound, X } from "lucide-react";
 import { Dialog, FieldError, fieldClass } from "@/components/inventory/Dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import {
-  buyerDealStatusLabels,
-  buyerDealStatuses,
-  installmentScheduleLabels,
-  installmentSchedules,
-  type BuyerProfile,
-} from "@/lib/sales";
+import { installmentYearChoices, planInstallments, yearsFromSchedule } from "@/lib/installmentPlan";
+import { formatTaka } from "@/lib/money";
+import { buyerDealStatusLabels, buyerDealStatuses, type BuyerProfile } from "@/lib/sales";
+import { cn } from "@/lib/utils";
 
 type BuyerFormProps = {
   buyer?: BuyerProfile | null;
@@ -31,17 +28,33 @@ export function BuyerForm({ buyer, onClose, onSaved }: BuyerFormProps) {
   const [email, setEmail] = useState(buyer?.email ?? "");
   const [address, setAddress] = useState(buyer?.address ?? "");
   const [notes, setNotes] = useState(buyer?.notes ?? "");
+  const [projectName, setProjectName] = useState(buyer?.projectName ?? "");
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [flatAmount, setFlatAmount] = useState(buyer?.flatAmount ?? "");
   const [size, setSize] = useState(buyer?.size ?? "");
   const [installmentPayment, setInstallmentPayment] = useState(buyer?.installmentPayment ?? "");
-  const [installmentAmount, setInstallmentAmount] = useState(buyer?.installmentAmount ?? "");
-  const [installmentSchedule, setInstallmentSchedule] = useState(buyer?.installmentSchedule ?? "");
+  const [years, setYears] = useState(yearsFromSchedule(buyer?.installmentSchedule ?? ""));
+  const legacySchedule = buyer?.installmentSchedule === "monthly" || buyer?.installmentSchedule === "yearly" ? buyer.installmentSchedule : "";
+  const plan = useMemo(
+    () => (years ? planInstallments(flatAmount, installmentPayment, years) : null),
+    [flatAmount, installmentPayment, years],
+  );
   const [paymentAlertOn, setPaymentAlertOn] = useState(buyer?.paymentAlertOn ?? "");
   const [dealStatus, setDealStatus] = useState(buyer ? buyer.dealStatus : "booking");
   const [queued, setQueued] = useState<QueuedFile[]>([]);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    api<{ projects: { id: string; name: string }[] }>("/api/projects").then((result) => {
+      if (active && result.ok) setProjects(result.data.projects);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function queue(list: FileList | null) {
     if (!list || list.length === 0) return;
@@ -70,6 +83,10 @@ export function BuyerForm({ buyer, onClose, onSaved }: BuyerFormProps) {
       setError("Enter the buyer name.");
       return;
     }
+    if (years && !plan) {
+      setError("Enter a flat price and a downpayment that is not more than the price.");
+      return;
+    }
     setPending(true);
     setError("");
     const result = await api<{ buyer: BuyerProfile }>(buyer ? `/api/buyers/${buyer.id}` : "/api/buyers", {
@@ -80,11 +97,12 @@ export function BuyerForm({ buyer, onClose, onSaved }: BuyerFormProps) {
         email,
         address,
         notes,
+        projectName,
         flatAmount,
         size,
         installmentPayment,
-        installmentAmount,
-        installmentSchedule,
+        installmentAmount: plan ? (plan.months === 0 ? "" : plan.regular) : (buyer?.installmentAmount ?? ""),
+        installmentSchedule: years ? String(years) : legacySchedule,
         paymentAlertOn,
         dealStatus,
       }),
@@ -131,13 +149,25 @@ export function BuyerForm({ buyer, onClose, onSaved }: BuyerFormProps) {
           <section className="rounded-2xl border border-[#ddd6fe] bg-[#faf5ff] p-4">
             <SectionTitle icon={Building2} title="Flat" tone="text-[#6d28d9] bg-[#ede9fe]" />
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="text-sm font-medium">
-                Total flat amount (৳)
-                <input className={inputClass} inputMode="decimal" value={flatAmount} onChange={(event) => setFlatAmount(event.target.value)} placeholder="0.00" />
+              <label className="text-sm font-medium sm:col-span-2">
+                Project name
+                <select className={inputClass} value={projectName} onChange={(event) => setProjectName(event.target.value)}>
+                  <option value="">Choose a project</option>
+                  {projectName && !projects.some((project) => project.name === projectName) ? <option value={projectName}>{projectName}</option> : null}
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.name}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="text-sm font-medium">
-                Size
-                <input className={inputClass} value={size} onChange={(event) => setSize(event.target.value)} placeholder="1200 sft" />
+                Flat size
+                <input className={inputClass} value={size} onChange={(event) => setSize(event.target.value)} placeholder="1200 sqft" />
+              </label>
+              <label className="text-sm font-medium">
+                Flat price (৳)
+                <input className={inputClass} inputMode="decimal" value={flatAmount} onChange={(event) => setFlatAmount(event.target.value)} placeholder="0.00" />
               </label>
             </div>
             <p className="mt-3 text-sm font-medium">Status</p>
@@ -157,38 +187,45 @@ export function BuyerForm({ buyer, onClose, onSaved }: BuyerFormProps) {
           </section>
         </div>
 
-        <section className="rounded-2xl border border-[#fde68a] bg-[#fffbeb] p-4">
-          <SectionTitle icon={CalendarClock} title="Installment" tone="text-[#b45309] bg-[#fef3c7]" />
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="rounded-2xl border border-[#bbf7d0] bg-[#f0fdf4] p-4">
+          <SectionTitle icon={CalendarClock} title="Installment" tone="text-[#047857] bg-[#dcfce7]" />
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="text-sm font-medium">
-              Installment payment (৳)
+              Downpayment (৳)
               <input className={inputClass} inputMode="decimal" value={installmentPayment} onChange={(event) => setInstallmentPayment(event.target.value)} placeholder="0.00" />
             </label>
-            <label className="text-sm font-medium">
-              Installment amount (৳)
-              <input className={inputClass} inputMode="decimal" value={installmentAmount} onChange={(event) => setInstallmentAmount(event.target.value)} placeholder="0.00" />
-            </label>
-            <div>
-              <p className="text-sm font-medium">Monthly or yearly</p>
-              <div className="mt-1.5 flex h-11 gap-2">
-                {installmentSchedules.map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    aria-pressed={installmentSchedule === item}
-                    onClick={() => setInstallmentSchedule(installmentSchedule === item ? "" : item)}
-                    className={`flex-1 rounded-xl text-sm font-semibold ${installmentSchedule === item ? "bg-[#b45309] text-white" : "bg-white text-[#92400e] ring-1 ring-[#fde68a]"}`}
-                  >
-                    {installmentScheduleLabels[item]}
-                  </button>
-                ))}
-              </div>
-            </div>
             <label className="text-sm font-medium">
               Payment alert
               <input className={inputClass} type="date" value={paymentAlertOn} onChange={(event) => setPaymentAlertOn(event.target.value)} />
             </label>
           </div>
+          <p className="mt-3 text-sm font-medium">Installment type</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {installmentYearChoices.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                aria-pressed={years === choice}
+                onClick={() => setYears(years === choice ? 0 : choice)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-semibold",
+                  years === choice ? "bg-[#047857] text-white" : "bg-white text-[#047857] ring-1 ring-[#bbf7d0]",
+                )}
+              >
+                {choice} {choice === 1 ? "year" : "years"}
+              </button>
+            ))}
+          </div>
+          {legacySchedule && !years ? (
+            <p className="mt-2 text-xs text-[#166534]">Earlier plan was saved as {legacySchedule}. Choose a year to replace it.</p>
+          ) : null}
+          <div className="mt-3 grid gap-2 rounded-xl bg-white p-3 sm:grid-cols-3">
+            <PlanFact label="Balance" value={plan ? formatTaka(plan.remaining) : "—"} />
+            <PlanFact label="Months" value={plan && plan.months > 0 ? String(plan.months) : "—"} />
+            <PlanFact label="Monthly installment" value={plan && plan.months > 0 ? formatTaka(plan.regular) : "—"} />
+          </div>
+          {plan?.uneven ? <p className="mt-2 text-xs text-[#166534]">The last month is {formatTaka(plan.last)} so the months add up to the balance.</p> : null}
+          {plan?.months === 0 ? <p className="mt-2 text-xs text-[#166534]">The downpayment covers the flat price.</p> : null}
         </section>
 
         <div className="grid gap-4 lg:grid-cols-2">
@@ -273,6 +310,15 @@ const statusOn: Record<string, string> = {
   completed: "bg-[#047857] text-white",
   cancelled: "bg-[#475569] text-white",
 };
+
+function PlanFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#64748b]">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-[#166534]">{value}</p>
+    </div>
+  );
+}
 
 function SectionTitle({ icon: Icon, title, tone }: { icon: typeof UserRound; title: string; tone: string }) {
   return (

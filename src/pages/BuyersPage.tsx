@@ -6,6 +6,8 @@ import { BuyerForm } from "@/components/sales/BuyerForm";
 import { Button } from "@/components/ui/button";
 import { can } from "@/lib/access";
 import { api } from "@/lib/api";
+import { buyerInstallmentBill, planInstallments, yearsFromSchedule } from "@/lib/installmentPlan";
+import { InstallmentBill } from "@/components/sales/InstallmentBill";
 import { formatTaka, toCents } from "@/lib/money";
 import { buyerDealStatusLabels, installmentScheduleLabels, type BuyerDealStatus, type BuyerListItem, type InstallmentSchedule } from "@/lib/sales";
 import { cn } from "@/lib/utils";
@@ -17,7 +19,10 @@ export function BuyersPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [creating, setCreating] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<BuyerListItem | null>(null);
+  const [deleteError, setDeleteError] = useState("");
   const allowed = can(user, "buyers", "view");
+  const canDelete = can(user, "buyers", "delete");
 
   function load() {
     api<{ buyers: BuyerListItem[] }>("/api/buyers").then((result) => {
@@ -46,10 +51,23 @@ export function BuyersPage() {
 
   const needle = query.trim().toLowerCase();
   const shown = (buyers ?? []).filter((buyer) =>
-    [buyer.name, buyer.phone, buyer.email, buyer.address].join(" ").toLowerCase().includes(needle),
+    [buyer.name, buyer.phone, buyer.email, buyer.address, buyer.projectName].join(" ").toLowerCase().includes(needle),
   );
 
   const dueCount = (buyers ?? []).filter((buyer) => stillDue(buyer.outstanding)).length;
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    const result = await api(`/api/buyers/${pendingDelete.id}`, { method: "DELETE", body: "{}" });
+    if (!result.ok) {
+      setDeleteError(result.error);
+      return;
+    }
+    setPendingDelete(null);
+    setDeleteError("");
+    setNotice("Buyer deleted.");
+    load();
+  }
 
   return (
     <div className="space-y-5">
@@ -96,10 +114,43 @@ export function BuyersPage() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {shown.map((buyer) => (
-            <BuyerCard key={buyer.id} buyer={buyer} />
+            <BuyerCard
+              key={buyer.id}
+              buyer={buyer}
+              canDelete={canDelete}
+              onDelete={() => {
+                setDeleteError("");
+                setPendingDelete(buyer);
+              }}
+            />
           ))}
         </div>
       )}
+      {pendingDelete ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#0c241f]/45 p-3 sm:items-center">
+          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-[22px] bg-white p-5">
+            <h2 className="text-lg font-semibold">Delete {pendingDelete.name}?</h2>
+            <p className="mt-2 text-sm text-[#5c6b76]">
+              {pendingDelete.bookings > 0 || pendingDelete.sales > 0
+                ? "Their bookings, sales, and receipts are removed too. Received money on those records comes off the books, and a unit they held is free again when nobody else holds it."
+                : "This buyer has no booking or sale. Only this contact record is removed."}
+            </p>
+            {deleteError ? <p className="mt-3 rounded-xl bg-[#fdeceb] px-3 py-2 text-sm text-[#b42318]">{deleteError}</p> : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setPendingDelete(null);
+                  setDeleteError("");
+                }}
+              >
+                Keep
+              </Button>
+              <Button onClick={() => void confirmDelete()}>Delete</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {creating ? (
         <BuyerForm
           onClose={() => setCreating(false)}
@@ -123,7 +174,7 @@ const avatarTones = [
   "bg-[#0891b2]",
 ];
 
-function BuyerCard({ buyer }: { buyer: BuyerListItem }) {
+function BuyerCard({ buyer, canDelete, onDelete }: { buyer: BuyerListItem; canDelete: boolean; onDelete: () => void }) {
   const due = stillDue(buyer.outstanding);
   const initial = buyer.name.trim().charAt(0).toUpperCase() || "?";
   const avatar = avatarTones[(initial.charCodeAt(0) || 0) % avatarTones.length];
@@ -157,6 +208,11 @@ function BuyerCard({ buyer }: { buyer: BuyerListItem }) {
             </div>
           </div>
           <span className="flex flex-col items-end gap-1">
+            {canDelete ? (
+              <button type="button" className="h-8 rounded-lg bg-white px-2.5 text-xs font-semibold text-[#be123c] ring-1 ring-[#fecdd3] hover:bg-[#fff1f2]" onClick={onDelete}>
+                Delete
+              </button>
+            ) : null}
             <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold", due ? "bg-[#ffe4e6] text-[#be123c]" : "bg-[#d1fae5] text-[#047857]")}>
               {due ? "Due" : buyer.sales > 0 ? "Clear" : "New"}
             </span>
@@ -178,22 +234,8 @@ function BuyerCard({ buyer }: { buyer: BuyerListItem }) {
         ) : (
           <p className="mt-3 text-xs text-[#94a3b8]">No project linked yet.</p>
         )}
-        {buyer.flatAmount || buyer.size || buyer.installmentAmount || buyer.installmentSchedule || buyer.paymentAlertOn ? (
-          <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Plan label="Flat" value={buyer.flatAmount ? formatTaka(buyer.flatAmount) : "—"} />
-            <Plan label="Size" value={buyer.size || "—"} />
-            <Plan
-              label="Installment"
-              value={
-                buyer.installmentAmount
-                  ? `${formatTaka(buyer.installmentAmount)}${buyer.installmentSchedule ? ` · ${installmentScheduleLabels[buyer.installmentSchedule as InstallmentSchedule] ?? buyer.installmentSchedule}` : ""}`
-                  : buyer.installmentSchedule
-                    ? (installmentScheduleLabels[buyer.installmentSchedule as InstallmentSchedule] ?? buyer.installmentSchedule)
-                    : "—"
-              }
-            />
-            <Plan label="Alert" value={buyer.paymentAlertOn || "—"} />
-          </dl>
+        {buyer.projectName || buyer.flatAmount || buyer.size || buyer.installmentPayment || buyer.installmentAmount || buyer.installmentSchedule ? (
+          <BuyerPlan buyer={buyer} />
         ) : null}
         <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Tile label="Bookings" value={String(buyer.bookings)} detail={buyer.openBookings ? `${buyer.openBookings} open` : "None open"} tone="bg-[#fffbeb] text-[#92400e]" />
@@ -206,11 +248,31 @@ function BuyerCard({ buyer }: { buyer: BuyerListItem }) {
   );
 }
 
+function BuyerPlan({ buyer }: { buyer: BuyerListItem }) {
+  const years = yearsFromSchedule(buyer.installmentSchedule);
+  const plan = years ? planInstallments(buyer.flatAmount, buyer.installmentPayment, years) : null;
+  const bill = buyerInstallmentBill(buyer);
+  const legacy = installmentScheduleLabels[buyer.installmentSchedule as InstallmentSchedule];
+  return (
+    <>
+      <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <Plan label="Project" value={buyer.projectName || "—"} />
+        <Plan label="Size" value={buyer.size || "—"} />
+        <Plan label="Price" value={buyer.flatAmount ? formatTaka(buyer.flatAmount) : "—"} />
+        <Plan label="Downpayment" value={buyer.installmentPayment ? formatTaka(buyer.installmentPayment) : "—"} />
+        <Plan label="Years" value={years ? `${years} ${years === 1 ? "year" : "years"}` : legacy || "—"} />
+        <Plan label="Monthly installment" value={plan && plan.months > 0 ? formatTaka(plan.regular) : buyer.installmentAmount ? formatTaka(buyer.installmentAmount) : "—"} />
+      </dl>
+      {bill ? <div className="mt-2"><InstallmentBill bill={bill} /></div> : null}
+    </>
+  );
+}
+
 function Plan({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-[#fff7ed] px-2.5 py-2">
-      <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#c2410c]">{label}</dt>
-      <dd className="mt-0.5 truncate text-xs font-semibold text-[#9a3412]">{value}</dd>
+    <div className="rounded-xl bg-[#f0fdf4] px-2.5 py-2">
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#047857]">{label}</dt>
+      <dd className="mt-0.5 truncate text-xs font-semibold text-[#14532d]">{value}</dd>
     </div>
   );
 }

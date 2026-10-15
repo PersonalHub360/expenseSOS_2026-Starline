@@ -1,10 +1,23 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Dialog, FieldError, fieldClass } from "@/components/inventory/Dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { createSlipSerial, saveManualSlip, validSlipAmount, validSlipPhone, type SlipKind } from "@/lib/manualSlip";
-import { methodLabel, paymentMethods, type CatalogUnit, type PaymentMethod } from "@/lib/sales";
+import { InstallmentBill } from "@/components/sales/InstallmentBill";
+import { buyerInstallmentBill } from "@/lib/installmentPlan";
+import { formatTaka } from "@/lib/money";
+import {
+  buyerDealStatusLabels,
+  methodLabel,
+  paymentMethods,
+  type BookingListItem,
+  type BuyerDealStatus,
+  type BuyerListItem,
+  type CatalogUnit,
+  type PaymentMethod,
+  type SaleListItem,
+} from "@/lib/sales";
 
 const inputClass = `${fieldClass} mt-1.5 bg-white`;
 
@@ -17,12 +30,23 @@ function localTime(date: Date) {
   return date.toTimeString().slice(0, 5);
 }
 
+function namesMatch(left: string, right: string) {
+  const a = left.trim().toLowerCase();
+  const b = right.trim().toLowerCase();
+  return Boolean(a && b && a === b);
+}
+
+function dealLabel(status: string) {
+  if (status in buyerDealStatusLabels) return buyerDealStatusLabels[status as BuyerDealStatus];
+  return status || "—";
+}
+
 export function CreateSlipForm({ onClose }: { onClose: () => void }) {
   const [, navigate] = useLocation();
   const now = new Date();
   const [kind, setKind] = useState<SlipKind>("payment");
-  const [buyerName, setBuyerName] = useState("");
-  const [buyerPhone, setBuyerPhone] = useState("");
+  const [buyers, setBuyers] = useState<BuyerListItem[] | null>(null);
+  const [buyerId, setBuyerId] = useState("");
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [date, setDate] = useState(localDate(now));
@@ -42,22 +66,55 @@ export function CreateSlipForm({ onClose }: { onClose: () => void }) {
       .sort((left, right) => left.name.localeCompare(right.name));
   }, [projects, units]);
   const unitOptions = units.filter((unit) => unit.projectId === projectId);
+  const buyer = buyers?.find((item) => item.id === buyerId) ?? null;
+  const bill = buyer ? buyerInstallmentBill(buyer) : null;
 
   useEffect(() => {
     let active = true;
     Promise.all([
       api<{ projects: { id: string; name: string }[] }>("/api/projects"),
       api<{ units: CatalogUnit[] }>("/api/sales/catalog"),
-    ]).then(([projectResult, unitResult]) => {
+      api<{ buyers: BuyerListItem[] }>("/api/buyers"),
+    ]).then(([projectResult, unitResult, buyerResult]) => {
       if (!active) return;
       if (projectResult.ok) setProjects(projectResult.data.projects);
       if (unitResult.ok) setUnits(unitResult.data.units);
-      if (!projectResult.ok && !unitResult.ok) setError(projectResult.error);
+      if (buyerResult.ok) setBuyers(buyerResult.data.buyers);
+      if (!projectResult.ok && !unitResult.ok && !buyerResult.ok) setError(buyerResult.error);
     });
     return () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!buyerId) return;
+    let active = true;
+    api<{ bookings: BookingListItem[]; sales: SaleListItem[] }>(`/api/buyers/${buyerId}`).then((result) => {
+      if (!active || !result.ok) return;
+      const sale = result.data.sales.find((item) => item.status !== "cancelled");
+      const booking = result.data.bookings.find((item) => item.status === "open") ?? result.data.bookings[0];
+      const deal = sale ?? booking;
+      if (!deal) return;
+      setProjectId(deal.project.id);
+      setUnitId(deal.unit.id);
+    });
+    return () => {
+      active = false;
+    };
+  }, [buyerId]);
+
+  function chooseBuyer(id: string) {
+    setBuyerId(id);
+    setProjectId("");
+    setUnitId("");
+    const chosen = buyers?.find((item) => item.id === id);
+    if (!chosen) return;
+    const named = projectOptions.find((project) => namesMatch(project.name, chosen.projectName));
+    const linked = chosen.projects.length === 1 ? projectOptions.find((project) => namesMatch(project.name, chosen.projects[0] ?? "")) : undefined;
+    if (named) setProjectId(named.id);
+    else if (linked) setProjectId(linked.id);
+  }
 
   function chooseProject(id: string) {
     setProjectId(id);
@@ -66,15 +123,15 @@ export function CreateSlipForm({ onClose }: { onClose: () => void }) {
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
-    const name = buyerName.trim();
-    const phone = validSlipPhone(buyerPhone);
+    const name = buyer?.name.trim() ?? "";
+    const phone = validSlipPhone(buyer?.phone ?? "");
     const money = validSlipAmount(amount);
-    if (!name) {
-      setError("Enter the buyer name.");
+    if (!buyer || !name) {
+      setError("Choose a buyer.");
       return;
     }
     if (!phone) {
-      setError("Enter the buyer phone number.");
+      setError("This buyer has no phone number. Add it on the buyer record.");
       return;
     }
     if (!money) {
@@ -100,6 +157,8 @@ export function CreateSlipForm({ onClose }: { onClose: () => void }) {
       note: note.trim(),
       projectName: project?.name ?? "",
       unitNumber: unit ? `${unit.number} · ${unit.type}` : "",
+      completed: false,
+      completedAt: "",
     };
     saveManualSlip(slip);
     onClose();
@@ -119,20 +178,41 @@ export function CreateSlipForm({ onClose }: { onClose: () => void }) {
         </div>
         <p className={`rounded-2xl px-4 py-3 text-sm ${kind === "refund" ? "bg-[#fff7ed] text-[#9a3412]" : "bg-[#f0fdfa] text-[#115e59]"}`}>
           {kind === "refund"
-            ? "Buyer name and phone are required. This refund slip is a document and is not taken out of collected money."
-            : "Buyer name and phone are required. This payment slip is a document and is not added to collected money."}
+            ? "Choose a buyer already saved in Buyers. Phone, project, unit, and the rest fill in from that record. This refund slip is a document and is not taken out of collected money."
+            : "Choose a buyer already saved in Buyers. Phone, project, unit, and the rest fill in from that record. This payment slip is a document and is not added to collected money."}
         </p>
         <div className="grid gap-4 lg:grid-cols-2">
           <section className="grid gap-3 rounded-2xl border border-[#e6ebef] bg-[#f8fafc] p-4">
             <h3 className="text-sm font-semibold text-[#16302c]">Buyer</h3>
             <label className="text-sm font-medium">
               Buyer name
-              <input className={inputClass} value={buyerName} onChange={(event) => setBuyerName(event.target.value)} placeholder="Buyer full name" autoFocus />
+              <select className={inputClass} value={buyerId} onChange={(event) => chooseBuyer(event.target.value)} autoFocus>
+                <option value="">Choose a buyer</option>
+                {(buyers ?? []).map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                    {item.phone ? ` · ${item.phone}` : ""}
+                  </option>
+                ))}
+              </select>
             </label>
-            <label className="text-sm font-medium">
-              Phone number
-              <input className={inputClass} inputMode="tel" value={buyerPhone} onChange={(event) => setBuyerPhone(event.target.value)} placeholder="01XXXXXXXXX" />
-            </label>
+            {buyers?.length === 0 ? (
+              <p className="text-sm text-[#7d8b96]">
+                No buyers yet. <Link href="/buyers" className="font-medium text-[#0f766e]">Open buyers</Link>
+              </p>
+            ) : buyers ? (
+              <dl className="grid grid-cols-2 gap-2 text-sm">
+                <Detail label="Phone" value={buyer?.phone || "—"} />
+                <Detail label="Status" value={buyer ? dealLabel(buyer.dealStatus) : "—"} />
+                <Detail label="Email" value={buyer?.email || "—"} wide />
+                <Detail label="Address" value={buyer?.address || "—"} wide />
+                <Detail label="Project" value={buyer?.projectName || buyer?.projects.join(", ") || "—"} />
+                <Detail label="Flat size" value={buyer?.size || "—"} />
+                <Detail label="Flat price" value={buyer?.flatAmount ? formatTaka(buyer.flatAmount) : "—"} />
+                <Detail label="Received" value={buyer ? formatTaka(buyer.received) : "—"} />
+              </dl>
+            ) : null}
+            {bill ? <InstallmentBill bill={bill} /> : null}
           </section>
           <section className={`grid gap-3 rounded-2xl border p-4 ${kind === "refund" ? "border-[#fed7aa] bg-[#fffaf5]" : "border-[#a7f3d0] bg-[#f0fdf8]"}`}>
             <h3 className="text-sm font-semibold text-[#16302c]">Money</h3>
@@ -202,5 +282,14 @@ export function CreateSlipForm({ onClose }: { onClose: () => void }) {
         </div>
       </form>
     </Dialog>
+  );
+}
+
+function Detail({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div className={`rounded-xl bg-white px-3 py-2 ${wide ? "col-span-2" : ""}`}>
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#64748b]">{label}</dt>
+      <dd className="mt-0.5 break-words font-semibold text-[#16302c]">{value}</dd>
+    </div>
   );
 }

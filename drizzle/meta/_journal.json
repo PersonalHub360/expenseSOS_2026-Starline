@@ -85,6 +85,41 @@
       "when": 1790978400000,
       "tag": "0011_buyer_plan",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790979600000,
+      "tag": "0012_expense_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790980800000,
+      "tag": "0013_booking_installment_years",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790982000000,
+      "tag": "0014_buyer_project_plan",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790983200000,
+      "tag": "0015_unit_note",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790984400000,
+      "tag": "0016_purchase_types",
+      "breakpoints": true
     }
   ]
 }

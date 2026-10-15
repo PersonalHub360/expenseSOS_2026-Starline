@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, ne, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, type SQL } from "drizzle-orm";
 import { db } from "../db/client";
 import {
   bookings,
@@ -20,7 +20,7 @@ type SaleFilter = { id?: string; buyerId?: string };
 
 export async function listBuyers() {
   const people = await db.select().from(buyers).orderBy(buyers.name);
-  const [bookingRows, saleRows] = await Promise.all([loadBookings(), loadSales()]);
+  const [bookingRows, saleRows, installmentPaymentRows] = await Promise.all([loadBookings(), loadSales(), loadInstallmentPayments()]);
   return people.map((person) => {
     const ownBookings = bookingRows.filter((booking) => booking.buyer.id === person.id);
     const ownSales = saleRows.filter((sale) => sale.buyer.id === person.id && sale.status !== "cancelled");
@@ -33,6 +33,7 @@ export async function listBuyers() {
       phone: person.phone,
       email: person.email,
       address: person.address,
+      projectName: person.projectName,
       flatAmount: person.flatAmount,
       size: person.size,
       installmentPayment: person.installmentPayment,
@@ -47,8 +48,18 @@ export async function listBuyers() {
       received: addMoney(ownSales.map((sale) => sale.received)),
       outstanding: addMoney(ownSales.map((sale) => sale.outstanding)),
       projects,
+      installmentPayments: installmentPaymentRows.filter((payment) => payment.buyerId === person.id).map((payment) => payment.amount),
     };
   });
+}
+
+async function loadInstallmentPayments() {
+  return db
+    .select({ buyerId: sales.buyerId, amount: payments.amount })
+    .from(payments)
+    .innerJoin(sales, eq(payments.saleId, sales.id))
+    .where(and(isNull(payments.bookingId), ne(sales.status, "cancelled")))
+    .orderBy(asc(payments.paidAt), asc(payments.id));
 }
 
 export async function getBuyer(id: string) {
@@ -184,6 +195,8 @@ export async function unitCatalog() {
       id: units.id,
       number: units.number,
       type: units.type,
+      size: units.size,
+      sizeUnit: units.sizeUnit,
       price: units.price,
       status: units.status,
       projectId: projects.id,
@@ -374,6 +387,7 @@ async function loadBookings(filter: BookingFilter = {}) {
       id: bookings.id,
       reference: bookings.reference,
       amount: bookings.amount,
+      installmentYears: bookings.installmentYears,
       status: bookings.status,
       note: bookings.note,
       cancellationReason: bookings.cancellationReason,
@@ -434,6 +448,7 @@ async function loadBookings(filter: BookingFilter = {}) {
       id: row.id,
       reference: row.reference,
       amount: row.amount,
+      installmentYears: row.installmentYears,
       status: row.status,
       note: row.note,
       cancellationReason: row.cancellationReason,
@@ -643,6 +658,7 @@ function presentBuyer(buyer: typeof buyers.$inferSelect) {
     email: buyer.email,
     address: buyer.address,
     notes: buyer.notes,
+    projectName: buyer.projectName,
     flatAmount: buyer.flatAmount,
     size: buyer.size,
     installmentPayment: buyer.installmentPayment,

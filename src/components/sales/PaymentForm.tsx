@@ -2,20 +2,27 @@ import { FormEvent, useState } from "react";
 import { Dialog, FieldError, fieldClass } from "@/components/inventory/Dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { InstallmentBill } from "@/components/sales/InstallmentBill";
+import { nextBillOnSchedule } from "@/lib/installmentPlan";
 import { formatTaka } from "@/lib/money";
-import { paymentMethodLabels, paymentMethods, type InstallmentRow, type PaymentMethod } from "@/lib/sales";
+import { paymentMethodLabels, paymentMethods, type InstallmentRow, type PaymentMethod, type SalePayment } from "@/lib/sales";
 
 type PaymentFormProps = {
   saleId: string;
   installments: InstallmentRow[];
+  payments: SalePayment[];
   onClose: () => void;
   onSaved: () => void;
 };
 
-export function PaymentForm({ saleId, installments, onClose, onSaved }: PaymentFormProps) {
+export function PaymentForm({ saleId, installments, payments, onClose, onSaved }: PaymentFormProps) {
   const openInstallments = installments.filter((installment) => installment.outstanding !== "0.00");
+  const bill = nextBillOnSchedule(
+    installments.map((installment) => installment.amount),
+    [...payments].sort((left, right) => left.paidAt.localeCompare(right.paidAt)).map((payment) => payment.amount),
+  );
   const [installmentId, setInstallmentId] = useState(openInstallments[0]?.id ?? "");
-  const [amount, setAmount] = useState(openInstallments[0]?.outstanding ?? "");
+  const [amount, setAmount] = useState(bill && bill.next !== "0.00" ? bill.next : (openInstallments[0]?.outstanding ?? ""));
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [note, setNote] = useState("");
   const [paidAt, setPaidAt] = useState("");
@@ -64,6 +71,12 @@ export function PaymentForm({ saleId, installments, onClose, onSaved }: PaymentF
           Amount (৳)
           <input className={`${fieldClass} mt-1.5`} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
         </label>
+        {bill && bill.next !== "0.00" ? (
+          <div className="grid gap-2">
+            <InstallmentBill bill={bill} />
+            <p className="text-xs text-[#64748b]">Anything above this installment fills the next ones. The sale total does not change.</p>
+          </div>
+        ) : null}
         <label className="text-sm font-medium">
           Method
           <select className={`${fieldClass} mt-1.5`} value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}>

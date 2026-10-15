@@ -1,5 +1,5 @@
 import { type DragEvent, type FormEvent, useEffect, useState } from "react";
-import { FileText, ImagePlus, X } from "lucide-react";
+import { Building2, FileText, ImagePlus, Wallet, X } from "lucide-react";
 import { Dialog, FieldError, fieldClass } from "@/components/inventory/Dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -8,14 +8,16 @@ import { formatTaka } from "@/lib/money";
 import { type ExpenseDetail } from "@/lib/operations";
 import { paymentMethods, paymentMethodLabels } from "@/lib/sales";
 
-const purchaseTypes = ["Land purchase", "Materials", "Construction", "Legal & registration", "Transport"] as const;
+const fallbackTypes = ["Land purchase", "Materials", "Construction", "Legal & registration", "Transport"];
 const maxBytes = 1_500_000;
+const inputClass = `${fieldClass} mt-1.5 bg-white focus:border-[#c2410c]`;
 
 type QueuedFile = { id: string; file: File; preview: string | null };
 
 type Catalog = {
   projects: { id: string; name: string }[];
   accounts: { id: string; name: string; kind: string; balance: string }[];
+  purchaseTypes?: { id: string; name: string }[];
 };
 
 export function PurchaseForm({
@@ -29,7 +31,7 @@ export function PurchaseForm({
 }) {
   const [catalog, setCatalog] = useState<Catalog>({ projects: [], accounts: [] });
   const [spentOn, setSpentOn] = useState(new Date().toISOString().slice(0, 10));
-  const [category, setCategory] = useState(purchaseTypes.includes(initialType as (typeof purchaseTypes)[number]) ? initialType! : purchaseTypes[0]);
+  const [category, setCategory] = useState(initialType || fallbackTypes[0]);
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<(typeof paymentMethods)[number]>("bank");
@@ -44,9 +46,13 @@ export function PurchaseForm({
 
   useEffect(() => {
     api<Catalog>("/api/expenses/catalog").then((result) => {
-      if (result.ok) setCatalog(result.data);
+      if (!result.ok) return;
+      setCatalog(result.data);
+      const names = (result.data.purchaseTypes ?? []).map((type) => type.name);
+      if (names.length === 0) return;
+      setCategory((current) => (names.includes(current) ? current : names.includes(initialType ?? "") ? initialType! : names[0]));
     });
-  }, []);
+  }, [initialType]);
 
   function queue(list: FileList | null) {
     if (!list || list.length === 0) return;
@@ -104,80 +110,112 @@ export function PurchaseForm({
     onSaved(result.data.expense, problems.length ? `Purchase added. ${problems.join(" ")}` : undefined);
   }
 
+  const paidFrom = catalog.accounts.find((account) => account.id === accountId);
+
   return (
     <Dialog title="Add purchase" onClose={onClose} wide>
-      <form className="grid gap-3" onSubmit={onSubmit}>
-        <p className="text-sm text-[#5c6b76]">
-          The amount is taken from the selected cash or bank account. Amounts of ৳50,000.00 or more are taken after someone else approves them.
+      <form className="grid gap-4" onSubmit={onSubmit}>
+        <p className="rounded-2xl bg-[#fff7ed] px-4 py-3 text-sm leading-6 text-[#9a3412]">
+          Money leaves the account you choose below. A purchase of ৳50,000.00 or more waits until someone else approves it.
         </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm font-medium">
-            Date
-            <input className={`${fieldClass} mt-1.5`} type="date" value={spentOn} onChange={(event) => setSpentOn(event.target.value)} required />
-          </label>
-          <label className="text-sm font-medium">
-            Purchase type
-            <select className={`${fieldClass} mt-1.5`} value={category} onChange={(event) => setCategory(event.target.value)} required>
-              {purchaseTypes.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm font-medium sm:col-span-2">
-            Description
-            <input className={`${fieldClass} mt-1.5`} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What was bought" />
-          </label>
-          <label className="text-sm font-medium">
-            Amount (৳)
-            <input className={`${fieldClass} mt-1.5`} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required />
-          </label>
-          <label className="text-sm font-medium">
-            Payment method
-            <select className={`${fieldClass} mt-1.5`} value={method} onChange={(event) => setMethod(event.target.value as typeof method)}>
-              {paymentMethods.map((item) => (
-                <option key={item} value={item}>
-                  {paymentMethodLabels[item]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm font-medium sm:col-span-2">
-            Paid from
-            <select className={`${fieldClass} mt-1.5`} value={accountId} onChange={(event) => setAccountId(event.target.value)} required>
-              <option value="">Select cash or bank account</option>
-              {catalog.accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name} · {accountKindLabels[account.kind] ?? account.kind} · {formatTaka(account.balance)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm font-medium sm:col-span-2">
-            Project
-            <select className={`${fieldClass} mt-1.5`} value={projectId} onChange={(event) => setProjectId(event.target.value)}>
-              <option value="">No project</option>
-              {catalog.projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <label className="text-sm font-medium">
-          Reference (optional)
-          <input className={`${fieldClass} mt-1.5`} value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Cheque no. or voucher" />
-        </label>
-        <label className="text-sm font-medium">
-          Notes (optional)
-          <input className={`${fieldClass} mt-1.5`} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Any extra detail" />
-        </label>
-        <div>
-          <p className="text-sm font-medium">Slips</p>
+
+        <section className="rounded-2xl border border-[#fed7aa] bg-[#fffaf5] p-4">
+          <Step label="1 · Purchase" />
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {(catalog.purchaseTypes?.length ? catalog.purchaseTypes.map((type) => type.name) : fallbackTypes).map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setCategory(item)}
+                className={`rounded-xl border px-2 py-2 text-center text-xs font-semibold ${category === item ? "border-[#c2410c] bg-white text-[#9a3412] shadow-[0_4px_12px_rgba(194,65,12,0.12)]" : "border-transparent bg-white/80 text-[#9a3412]/80"}`}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+            <label className="text-sm font-medium text-[#7c2d12]">
+              Date
+              <input className={inputClass} type="date" value={spentOn} onChange={(event) => setSpentOn(event.target.value)} required />
+            </label>
+            <label className="text-sm font-medium text-[#7c2d12]">
+              What was bought
+              <input className={inputClass} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Cement, steel, deed fee…" />
+            </label>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-[#fde68a] bg-[#fffbeb] p-4">
+          <Step label="2 · Payment" />
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-sm font-medium text-[#92400e]">
+              Amount (৳)
+              <input className={inputClass} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required />
+            </label>
+            <label className="text-sm font-medium text-[#92400e]">
+              Payment method
+              <select className={inputClass} value={method} onChange={(event) => setMethod(event.target.value as typeof method)}>
+                {paymentMethods.map((item) => (
+                  <option key={item} value={item}>
+                    {paymentMethodLabels[item]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm font-medium text-[#92400e] sm:col-span-2">
+              <span className="inline-flex items-center gap-1.5">
+                <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
+                Paid from
+              </span>
+              <select className={inputClass} value={accountId} onChange={(event) => setAccountId(event.target.value)} required>
+                <option value="">Select cash or bank account</option>
+                {catalog.accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name} · {accountKindLabels[account.kind] ?? account.kind} · {formatTaka(account.balance)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {paidFrom ? (
+            <p className="mt-3 rounded-xl bg-white px-3 py-2 text-sm text-[#92400e]">
+              {paidFrom.name} has {formatTaka(paidFrom.balance)} now. This purchase is taken from that balance.
+            </p>
+          ) : null}
+        </section>
+
+        <section className="rounded-2xl border border-[#e9e4f5] bg-[#faf8ff] p-4">
+          <Step label="3 · Project and notes" />
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-sm font-medium text-[#3730a3] sm:col-span-2">
+              <span className="inline-flex items-center gap-1.5">
+                <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
+                Project
+              </span>
+              <select className={inputClass} value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+                <option value="">No project</option>
+                {catalog.projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm font-medium text-[#3730a3]">
+              Reference
+              <input className={inputClass} value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Cheque no. or voucher" />
+            </label>
+            <label className="text-sm font-medium text-[#3730a3]">
+              Notes
+              <input className={inputClass} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Any extra detail" />
+            </label>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-[#fed7aa] bg-white p-4">
+          <Step label="4 · Slips" />
           <label
-            className={`mt-1.5 flex cursor-pointer flex-col items-center rounded-2xl border border-dashed px-4 py-8 text-center ${dragging ? "border-[#c2410c] bg-[#fff7ed]" : "border-[#fdba74] bg-[#fff7ed]"}`}
+            className={`mt-3 flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed px-4 py-4 ${dragging ? "border-[#c2410c] bg-[#fff7ed]" : "border-[#fdba74] bg-[#fffaf5]"}`}
             onDragOver={(event) => {
               event.preventDefault();
               setDragging(true);
@@ -185,11 +223,13 @@ export function PurchaseForm({
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
           >
-            <span className="grid h-12 w-12 place-items-center rounded-full bg-[#ffedd5] text-[#c2410c]">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#ffedd5] text-[#c2410c]">
               <ImagePlus className="h-5 w-5" />
             </span>
-            <span className="mt-3 text-sm font-semibold text-[#9a3412]">Click to upload or drag and drop</span>
-            <span className="mt-1 text-xs text-[#c2410c]">PNG, JPG, WEBP, or PDF — add several slips at once</span>
+            <span>
+              <span className="block text-sm font-semibold text-[#9a3412]">Add slip images or PDF</span>
+              <span className="mt-0.5 block text-xs text-[#c2410c]">Click or drop several files at once</span>
+            </span>
             <input
               type="file"
               multiple
@@ -204,7 +244,7 @@ export function PurchaseForm({
           {queued.length > 0 ? (
             <ul className="mt-3 grid gap-2 sm:grid-cols-2">
               {queued.map((item) => (
-                <li key={item.id} className="flex items-center gap-2 rounded-xl border border-[#fed7aa] bg-white px-2 py-2 text-sm">
+                <li key={item.id} className="flex items-center gap-2 rounded-xl border border-[#fed7aa] bg-[#fffaf5] px-2 py-2 text-sm">
                   {item.preview ? (
                     <img src={item.preview} alt="" className="h-10 w-10 rounded-lg object-cover" />
                   ) : (
@@ -227,9 +267,10 @@ export function PurchaseForm({
               ))}
             </ul>
           ) : null}
-        </div>
+        </section>
+
         <FieldError message={error} />
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 border-t border-[#ffedd5] pt-4">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
@@ -240,6 +281,10 @@ export function PurchaseForm({
       </form>
     </Dialog>
   );
+}
+
+function Step({ label }: { label: string }) {
+  return <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#c2410c]">{label}</p>;
 }
 
 function contentTypeOf(file: File) {

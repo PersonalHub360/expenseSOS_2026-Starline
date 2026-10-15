@@ -3,13 +3,13 @@ import { Link, useParams } from "wouter";
 import { useAuth } from "@/auth/AuthContext";
 import { SlipView } from "@/components/sales/ReceiptView";
 import { can } from "@/lib/access";
-import { findManualSlip, manualSlipRows } from "@/lib/manualSlip";
+import { completeManualSlip, findManualSlip, manualSlipRows } from "@/lib/manualSlip";
 import { methodLabel } from "@/lib/sales";
 
 export function ManualSlipPage() {
   const params = useParams<{ id: string }>();
   const { user } = useAuth();
-  const [slip] = useState(() => findManualSlip(params.id ?? ""));
+  const [slip, setSlip] = useState(() => findManualSlip(params.id ?? ""));
   const allowed = can(user, "payments", "view");
 
   if (!allowed) return <p className="text-sm text-[#b42318]">You do not have access to receipts.</p>;
@@ -29,6 +29,13 @@ export function ManualSlipPage() {
               buyerName: slip.buyerName,
               buyerPhone: slip.buyerPhone,
               rows: manualSlipRows(slip).map((row) => (row.label === "Method" ? { ...row, value: methodLabel(row.value) } : row)),
+            }}
+            completion={{
+              completed: slip.completed,
+              onComplete: () => {
+                const saved = completeManualSlip(slip.id);
+                if (saved) setSlip(saved);
+              },
             }}
           />
         </div>

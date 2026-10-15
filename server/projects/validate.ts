@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizeMoney } from "./money";
+import { compareMoney, normalizeMoney } from "./money";
 
 export const projectStatuses = ["planning", "active", "on_hold", "completed", "cancelled"] as const;
 export type ProjectStatus = (typeof projectStatuses)[number];
@@ -15,6 +15,20 @@ const staffMember = z.object({
   jobTitle: z.string().trim().max(120).optional().default(""),
 });
 
+const unitStatuses = ["available", "reserved", "sold", "cancelled"] as const;
+const sizeUnits = ["sqft", "katha", "decimal"] as const;
+
+const unitDraftSchema = z.object({
+  id: z.string().trim().optional().default(""),
+  number: z.string().trim().min(1, "Enter the unit number.").max(40),
+  location: z.string().trim().max(160).optional().default(""),
+  price: z.string().trim(),
+  status: z.enum(unitStatuses).default("available"),
+  note: z.string().trim().max(500).optional().default(""),
+  size: z.string().trim().optional().default("1"),
+  sizeUnit: z.enum(sizeUnits).optional().default("sqft"),
+});
+
 const projectSchema = z
   .object({
     name: z.string().trim().min(1, "Enter the project name.").max(160),
@@ -26,6 +40,7 @@ const projectSchema = z
     budget: z.string().trim(),
     staffIds: z.array(z.string().uuid()).max(30).optional().default([]),
     staff: z.array(staffMember).max(20).optional().default([]),
+    units: z.array(unitDraftSchema).max(200).optional(),
   })
   .superRefine((value, context) => {
     if (!normalizeMoney(value.budget)) {
@@ -33,6 +48,26 @@ const projectSchema = z
         code: "custom",
         path: ["budget"],
         message: "Enter the budget in taka, with up to 2 decimal places.",
+      });
+    }
+    if (value.units) {
+      const seen = new Set<string>();
+      value.units.forEach((unit, index) => {
+        if (unit.id && !z.string().uuid().safeParse(unit.id).success) {
+          context.addIssue({ code: "custom", path: ["units", index, "id"], message: "That unit is no longer available." });
+        }
+        const price = normalizeMoney(unit.price);
+        if (!price || compareMoney(price, "0.00") <= 0) {
+          context.addIssue({ code: "custom", path: ["units", index, "price"], message: "Enter a unit price greater than zero." });
+        }
+        if (!/^\d+(\.\d{1,2})?$/.test(unit.size) || unit.size === "0" || unit.size === "0.0" || unit.size === "0.00") {
+          context.addIssue({ code: "custom", path: ["units", index, "size"], message: "Enter a unit size greater than zero." });
+        }
+        const key = unit.number.toLowerCase();
+        if (seen.has(key)) {
+          context.addIssue({ code: "custom", path: ["units", index, "number"], message: "Each unit number can be used once." });
+        }
+        seen.add(key);
       });
     }
     if (value.startDate && value.endDate && value.endDate < value.startDate) {
@@ -53,7 +88,12 @@ export function parseProject(body: unknown) {
   }
   const budget = normalizeMoney(parsed.data.budget);
   if (!budget) return { ok: false as const, error: "Enter the budget in taka, with up to 2 decimal places." };
-  return { ok: true as const, value: { ...parsed.data, budget, staffIds: unique(parsed.data.staffIds) } };
+  const units = parsed.data.units?.map((unit) => ({
+    ...unit,
+    price: normalizeMoney(unit.price) ?? unit.price,
+    size: normalizeSize(unit.size),
+  }));
+  return { ok: true as const, value: { ...parsed.data, budget, units, staffIds: unique(parsed.data.staffIds) } };
 }
 
 const amountSchema = z.object({
@@ -97,6 +137,11 @@ export function parseDocument(body: unknown) {
     .safeParse(body);
   if (!parsed.success) return { ok: false as const, error: parsed.error.issues[0]?.message ?? "Check the document." };
   return { ok: true as const, value: parsed.data };
+}
+
+function normalizeSize(value: string) {
+  const [whole, fraction = ""] = value.split(".");
+  return `${whole}.${fraction.padEnd(2, "0").slice(0, 2)}`;
 }
 
 function isCalendarDate(value: string) {

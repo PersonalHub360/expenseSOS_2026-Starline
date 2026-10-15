@@ -123,6 +123,7 @@ export const buyers = pgTable("buyers", {
   email: text("email").notNull().default(""),
   address: text("address").notNull().default(""),
   notes: text("notes").notNull().default(""),
+  projectName: text("project_name").notNull().default(""),
   flatAmount: text("flat_amount").notNull().default(""),
   size: text("size").notNull().default(""),
   installmentPayment: text("installment_payment").notNull().default(""),
@@ -204,6 +205,7 @@ export const units = pgTable(
     location: text("location").notNull(),
     price: money("price").notNull(),
     status: unitStatus("status").notNull().default("available"),
+    note: text("note").notNull().default(""),
     ...timestamps,
   },
   (table) => [uniqueIndex("units_project_number_unique").on(table.projectId, sql`lower(${table.number})`)],
@@ -221,6 +223,7 @@ export const bookings = pgTable(
       .references(() => buyers.id, { onDelete: "restrict" }),
     reference: text("reference").notNull(),
     amount: money("amount").notNull(),
+    installmentYears: integer("installment_years").notNull().default(0),
     status: bookingStatus("status").notNull().default("open"),
     note: text("note").notNull().default(""),
     cancellationReason: text("cancellation_reason").notNull().default(""),
@@ -233,6 +236,7 @@ export const bookings = pgTable(
     uniqueIndex("bookings_open_unit_unique").on(table.unitId).where(sql`${table.status} = 'open'`),
     index("bookings_buyer_id_idx").on(table.buyerId),
     check("bookings_amount_positive", sql`${table.amount} > 0`),
+    check("bookings_installment_years_range", sql`${table.installmentYears} BETWEEN 0 AND 10`),
   ],
 );
 
@@ -348,6 +352,26 @@ export const refunds = pgTable(
     index("refunds_booking_id_idx").on(table.bookingId),
     check("refunds_amount_positive", sql`${table.amount} > 0`),
   ],
+);
+
+export const expenseCategories = pgTable(
+  "expense_categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("expense_categories_name_lower_unique").on(sql`lower(${table.name})`)],
+);
+
+export const purchaseTypes = pgTable(
+  "purchase_types",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("purchase_types_name_lower_unique").on(sql`lower(${table.name})`)],
 );
 
 export const expenses = pgTable(

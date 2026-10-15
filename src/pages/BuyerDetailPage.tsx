@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { can } from "@/lib/access";
 import { api } from "@/lib/api";
 import { AlertCircle, ArrowLeft, BadgeDollarSign, Banknote, Building2, CalendarCheck, CalendarClock, Mail, MapPin, Phone, StickyNote, Undo2 } from "lucide-react";
+import { buyerInstallmentBill, planInstallments, yearsFromSchedule } from "@/lib/installmentPlan";
+import { InstallmentBill } from "@/components/sales/InstallmentBill";
+import { PaymentHistory } from "@/components/sales/PaymentHistory";
 import { addMoney, formatTaka, toCents } from "@/lib/money";
 import { buyerDealStatusLabels, formatTimestamp, installmentScheduleLabels, type BookingListItem, type BuyerDealStatus, type BuyerProfile, type InstallmentSchedule, type SaleListItem } from "@/lib/sales";
 import { cn } from "@/lib/utils";
@@ -97,7 +100,6 @@ export function BuyerDetailPage() {
     const result = await api(`/api/buyers/${id}`, { method: "DELETE", body: JSON.stringify({}) });
     if (!result.ok) {
       setError(result.error);
-      setConfirming(false);
       return;
     }
     navigate("/buyers");
@@ -197,31 +199,7 @@ export function BuyerDetailPage() {
               </button>
             ))}
           </div>
-          {panel === "plan" ? (
-          <div className="mt-4 grid gap-4 lg:grid-cols-3">
-            <section className="rounded-[22px] border border-[#ddd6fe] bg-white p-4">
-              <PanelTitle icon={Building2} title="Flat" tone="bg-[#ede9fe] text-[#6d28d9]" />
-              <div className="mt-3 grid gap-2">
-                <Fact label="Status" value={buyer.dealStatus ? (buyerDealStatusLabels[buyer.dealStatus as BuyerDealStatus] ?? buyer.dealStatus) : "Not set"} tone="bg-[#f5f3ff] text-[#6d28d9]" />
-                <Fact label="Total flat amount" value={buyer.flatAmount ? formatTaka(buyer.flatAmount) : "Not set"} tone="bg-[#faf5ff] text-[#5b21b6]" />
-                <Fact label="Size" value={buyer.size || "Not set"} tone="bg-[#f5f3ff] text-[#6d28d9]" />
-              </div>
-            </section>
-            <section className="rounded-[22px] border border-[#fde68a] bg-white p-4">
-              <PanelTitle icon={CalendarClock} title="Installment" tone="bg-[#fef3c7] text-[#b45309]" />
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <Fact label="Installment payment" value={buyer.installmentPayment ? formatTaka(buyer.installmentPayment) : "Not set"} tone="bg-[#fffbeb] text-[#92400e]" />
-                <Fact label="Installment amount" value={buyer.installmentAmount ? formatTaka(buyer.installmentAmount) : "Not set"} tone="bg-[#fffbeb] text-[#92400e]" />
-                <Fact label="Schedule" value={buyer.installmentSchedule ? (installmentScheduleLabels[buyer.installmentSchedule as InstallmentSchedule] ?? buyer.installmentSchedule) : "Not set"} tone="bg-[#fef3c7] text-[#b45309]" />
-                <Fact label="Payment alert" value={buyer.paymentAlertOn || "Not set"} tone="bg-[#fff7ed] text-[#c2410c]" />
-              </div>
-            </section>
-            <section className="rounded-[22px] border border-[#f3e8ff] bg-[#faf5ff] p-4">
-              <PanelTitle icon={StickyNote} title="Notes" tone="bg-[#ede9fe] text-[#7c3aed]" />
-              <p className="mt-3 whitespace-pre-wrap text-sm text-[#4c1d95]">{buyer.notes || "No notes yet."}</p>
-            </section>
-          </div>
-          ) : null}
+          {panel === "plan" ? <BuyerPlanPanel buyer={buyer} payments={detail.payments} /> : null}
           {panel === "deals" ? (
           <div className="mt-4 grid items-start gap-4 xl:grid-cols-2">
             <section className="overflow-hidden rounded-[24px] border border-[#fde68a] bg-white shadow-[0_12px_32px_rgba(217,119,6,0.06)]">
@@ -276,67 +254,7 @@ export function BuyerDetailPage() {
             </section>
           </div>
           ) : null}
-          {panel === "payments" ? (
-          <section className="mt-4 overflow-hidden rounded-[24px] border border-[#a7f3d0] bg-white shadow-[0_12px_32px_rgba(5,150,105,0.06)]">
-            <div className="flex items-center justify-between bg-gradient-to-r from-[#059669] to-[#14b8a6] px-5 py-4 text-white">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/75">Receipts</p>
-                <h2 className="text-lg font-semibold">Payments and refunds</h2>
-              </div>
-              <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-semibold">{detail.payments.length + detail.refunds.length}</span>
-            </div>
-            {detail.payments.length === 0 && detail.refunds.length === 0 ? (
-              <p className="px-5 py-8 text-sm text-[#7d8b96]">No receipts yet.</p>
-            ) : (
-              <div className={cn("grid gap-4 p-4 sm:p-5", detail.payments.length > 0 && detail.refunds.length > 0 ? "xl:grid-cols-2" : "")}>
-                {detail.payments.length > 0 ? (
-                  <div>
-                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#047857]">Payments</p>
-                    <ul className="grid gap-2">
-                      {detail.payments.map((payment) => (
-                        <li key={payment.id}>
-                          <Link href={`/payments/${payment.id}/receipt`} className="flex items-center gap-3 rounded-2xl border border-[#a7f3d0] bg-[#f0fdf8] px-3 py-3 hover:bg-[#ecfdf5]">
-                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#059669] text-white">
-                              <Banknote className="h-4 w-4" aria-hidden="true" />
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate font-semibold text-[#065f46]">{payment.receiptNumber}</span>
-                              <span className="mt-0.5 block truncate text-xs text-[#5c6b76]">
-                                {formatTimestamp(payment.paidAt)} · {payment.method} · {payment.saleReference || payment.bookingReference}
-                              </span>
-                            </span>
-                            <span className="shrink-0 text-sm font-semibold tabular-nums text-[#047857]">{formatTaka(payment.amount)}</span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                {detail.refunds.length > 0 ? (
-                  <div>
-                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#c2410c]">Refunds</p>
-                    <ul className="grid gap-2">
-                      {detail.refunds.map((refund) => (
-                        <li key={refund.id}>
-                          <Link href={`/payments/refunds/${refund.id}/receipt`} className="flex items-center gap-3 rounded-2xl border border-[#fed7aa] bg-[#fffaf5] px-3 py-3 hover:bg-[#fff7ed]">
-                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#ea580c] text-white">
-                              <Undo2 className="h-4 w-4" aria-hidden="true" />
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate font-semibold text-[#9a3412]">{refund.receiptNumber}</span>
-                              <span className="mt-0.5 block truncate text-xs text-[#5c6b76]">{formatTimestamp(refund.refundedAt)}</span>
-                            </span>
-                            <span className="shrink-0 text-sm font-semibold tabular-nums text-[#c2410c]">{formatTaka(refund.amount)}</span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </section>
-          ) : null}
+          {panel === "payments" ? <PaymentHistory buyer={buyer} payments={detail.payments} refunds={detail.refunds} /> : null}
           {panel === "history" ? (
           <section className="mt-4 overflow-hidden rounded-[24px] border border-[#efe7f5] bg-white shadow-[0_12px_32px_rgba(124,58,237,0.06)]">
             <div className="flex items-center justify-between bg-gradient-to-r from-[#7c3aed] via-[#db2777] to-[#f97316] px-5 py-4 text-white">
@@ -379,7 +297,12 @@ export function BuyerDetailPage() {
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#0c241f]/45 p-3 sm:items-center">
           <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-[22px] bg-white p-5">
             <h2 className="text-lg font-semibold">Remove this buyer?</h2>
-            <p className="mt-2 text-sm text-[#5c6b76]">A buyer with bookings or sales stays on the record.</p>
+            <p className="mt-2 text-sm text-[#5c6b76]">
+              {detail && (detail.bookings.length > 0 || detail.sales.length > 0)
+                ? "Their bookings, sales, and receipts are removed too. Received money on those records comes off the books, and a unit they held is free again when nobody else holds it."
+                : "This buyer has no booking or sale. Only this contact record is removed."}
+            </p>
+            {error ? <p className="mt-3 rounded-xl bg-[#fdeceb] px-3 py-2 text-sm text-[#b42318]">{error}</p> : null}
             <div className="mt-4 flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setConfirming(false)}>
                 Keep
@@ -477,6 +400,43 @@ function HistoryItem({ event, last }: { event: HistoryEvent; last: boolean }) {
         {event.detail ? <p className="mt-1 whitespace-pre-wrap text-sm text-[#5c6b76]">{event.detail}</p> : null}
       </article>
     </li>
+  );
+}
+
+function BuyerPlanPanel({ buyer, payments }: { buyer: BuyerProfile; payments: { amount: string; paidAt: string; bookingReference: string }[] }) {
+  const years = yearsFromSchedule(buyer.installmentSchedule);
+  const plan = years ? planInstallments(buyer.flatAmount, buyer.installmentPayment, years) : null;
+  const bill = buyerInstallmentBill({
+    ...buyer,
+    installmentPayments: payments
+      .filter((payment) => !payment.bookingReference)
+      .sort((left, right) => left.paidAt.localeCompare(right.paidAt))
+      .map((payment) => payment.amount),
+  });
+  const legacy = installmentScheduleLabels[buyer.installmentSchedule as InstallmentSchedule];
+  return (
+    <div className="mt-4 grid gap-4 lg:grid-cols-3">
+      <section className="rounded-[22px] border border-[#dbeafe] bg-white p-4 lg:col-span-2">
+        <PanelTitle icon={Building2} title="Flat plan" tone="bg-[#dbeafe] text-[#1d4ed8]" />
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <Fact label="Project" value={buyer.projectName || "Not set"} tone="bg-[#eff6ff] text-[#1e3a8a]" />
+          <Fact label="Flat size" value={buyer.size || "Not set"} tone="bg-[#eff6ff] text-[#1e3a8a]" />
+          <Fact label="Flat price" value={buyer.flatAmount ? formatTaka(buyer.flatAmount) : "Not set"} tone="bg-[#eef2ff] text-[#3730a3]" />
+          <Fact label="Downpayment" value={buyer.installmentPayment ? formatTaka(buyer.installmentPayment) : "Not set"} tone="bg-[#ecfdf5] text-[#065f46]" />
+          <Fact label="Installment type" value={years ? `${years} ${years === 1 ? "year" : "years"}` : legacy || "Not set"} tone="bg-[#f0fdf4] text-[#166534]" />
+          <Fact label="Monthly installment" value={plan && plan.months > 0 ? formatTaka(plan.regular) : buyer.installmentAmount ? formatTaka(buyer.installmentAmount) : "Not set"} tone="bg-[#f0fdf4] text-[#166534]" />
+          <Fact label="Status" value={buyer.dealStatus ? (buyerDealStatusLabels[buyer.dealStatus as BuyerDealStatus] ?? buyer.dealStatus) : "Not set"} tone="bg-[#f5f3ff] text-[#6d28d9]" />
+          <Fact label="Payment alert" value={buyer.paymentAlertOn || "Not set"} tone="bg-[#fff7ed] text-[#c2410c]" />
+          <Fact label="Balance" value={plan ? formatTaka(plan.remaining) : "Not set"} tone="bg-[#fffbeb] text-[#92400e]" />
+        </div>
+        {bill ? <div className="mt-3"><InstallmentBill bill={bill} /></div> : null}
+        {plan?.uneven ? <p className="mt-3 text-sm text-[#166534]">The last month is {formatTaka(plan.last)} so the months add up to the balance. This plan is not added to received money.</p> : <p className="mt-3 text-sm text-[#64748b]">This plan stays on the buyer. It is not added to received money or profit.</p>}
+      </section>
+      <section className="rounded-[22px] border border-[#f3e8ff] bg-[#faf5ff] p-4">
+        <PanelTitle icon={StickyNote} title="Notes" tone="bg-[#ede9fe] text-[#7c3aed]" />
+        <p className="mt-3 whitespace-pre-wrap text-sm text-[#4c1d95]">{buyer.notes || "No notes yet."}</p>
+      </section>
+    </div>
   );
 }
 
