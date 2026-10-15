@@ -18,9 +18,15 @@ export async function seedAccessCatalog() {
 
     if (!roleId) throw new Error(`Could not store role ${role.key}`);
 
-    await db.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
+    const stored = await db
+      .select({ module: rolePermissions.module })
+      .from(rolePermissions)
+      .where(eq(rolePermissions.roleId, roleId));
+    const present = new Set(stored.map((row) => row.module));
+    const missing = role.permissions.filter((permission) => !present.has(permission.module));
+    if (missing.length === 0) continue;
     await db.insert(rolePermissions).values(
-      role.permissions.map((permission) => ({
+      missing.map((permission) => ({
         roleId,
         module: permission.module,
         canView: permission.canView,
