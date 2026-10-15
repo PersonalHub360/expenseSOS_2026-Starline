@@ -3,7 +3,8 @@ import { Download } from "lucide-react";
 import { Dialog, FieldError } from "@/components/inventory/Dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { downloadText, expenseTemplateCsv, parseExpenseCsv, type ExpenseImportRow } from "@/lib/expenseSheet";
+import { downloadText } from "@/lib/download";
+import { expenseTemplateCsv, parseExpenseCsv, type ExpenseImportRow } from "@/lib/expenseSheet";
 
 export function ExpenseImportForm({
   onClose,

@@ -7,7 +7,7 @@ export function formatTaka(value: string) {
   return `${negative ? "-" : ""}৳${grouped}.${fraction.slice(0, 2).padEnd(2, "0")}`;
 }
 
-/** Integer cents. Mirrors the server ledger so forms do not use floating-point money. */
+/** Integer cents. The server ledger imports these same functions. */
 export function normalizeMoney(value: string) {
   const trimmed = value.trim();
   if (!moneyPattern.test(trimmed)) return null;

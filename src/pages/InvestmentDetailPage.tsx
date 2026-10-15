@@ -7,9 +7,9 @@ import { Button } from "@/components/ui/button";
 import { fieldClass } from "@/components/inventory/Dialog";
 import { can } from "@/lib/access";
 import { api } from "@/lib/api";
-import { formatWhen, investmentStatusLabels, payMethod, type InvestmentReturnRow, type InvestmentRow } from "@/lib/finance";
+import { formatWhen, investmentStatusLabels, type InvestmentReturnRow, type InvestmentRow } from "@/lib/finance";
 import { formatTaka } from "@/lib/money";
-import { paymentMethodLabels, paymentMethods } from "@/lib/sales";
+import { methodLabel, paymentMethodLabels, paymentMethods } from "@/lib/sales";
 
 export function InvestmentDetailPage() {
   const params = useParams<{ id: string }>();
@@ -93,7 +93,7 @@ export function InvestmentDetailPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{investment.investorName}</h1>
           <p className="mt-1 text-sm text-[#5c6b76]">
-            {formatWhen(investment.investedAt)} · {payMethod(investment.method)} · {investment.project?.name ?? "General"}
+            {formatWhen(investment.investedAt)} · {methodLabel(investment.method)} · {investment.project?.name ?? "General"}
             {investment.purpose ? ` · ${investment.purpose}` : ""}
           </p>
         </div>
@@ -120,7 +120,7 @@ export function InvestmentDetailPage() {
             {returns.map((item) => (
               <li key={item.id} className="flex flex-wrap justify-between gap-2 py-3">
                 <span>
-                  {formatWhen(item.returnedAt)} · {payMethod(item.method)}
+                  {formatWhen(item.returnedAt)} · {methodLabel(item.method)}
                   {item.note ? ` · ${item.note}` : ""}
                 </span>
                 <span className="font-semibold">{formatTaka(item.amount)}</span>

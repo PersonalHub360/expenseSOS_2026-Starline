@@ -1,5 +1,3 @@
-import { methodLabel } from "@/lib/operations";
-
 export const accountKinds = ["cash", "bank"] as const;
 export const movementKinds = ["deposit", "withdrawal"] as const;
 export const employeeStatuses = ["active", "inactive"] as const;
@@ -29,10 +27,6 @@ export const salaryStatusLabels: Record<string, string> = {
   active: "Active",
   inactive: "Inactive",
 };
-
-export function payMethod(method: string) {
-  return methodLabel(method);
-}
 
 export type ProjectOption = { id: string; name: string };
 

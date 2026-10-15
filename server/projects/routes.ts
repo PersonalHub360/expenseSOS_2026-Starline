@@ -144,6 +144,7 @@ projectsRouter.post("/:id/expenses", requirePermission("expenses", "add"), async
       description: parsed.value.note,
       note: parsed.value.note,
       method: "cash",
+      accountId: null,
       spentOn: todayUtc(),
       frequency: null,
       nextDueDate: null,

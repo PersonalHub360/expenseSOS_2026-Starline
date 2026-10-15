@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addMoney } from "../projects/money.ts";
-import { installmentPaymentHistory, nextInstallmentBill, planInstallments, saleSchedule } from "../../src/lib/installmentPlan.ts";
-import { parseBuyer } from "./validate.ts";
+import { addMoney } from "../projects/money";
+import { installmentPaymentHistory, nextInstallmentBill, planInstallments, saleSchedule } from "../../src/lib/installmentPlan";
+import { parseBuyer } from "./validate";
 
 test("monthly installment splits the balance after downpayment in cents", () => {
   const plan = planInstallments("2500000.00", "500000.00", 4);

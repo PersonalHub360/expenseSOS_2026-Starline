@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { expensesToCsv, parseExpenseCsv } from "../../src/lib/expenseSheet.ts";
-import { expenseMethod, parseExpenseImport } from "./validate.ts";
+import { expensesToCsv, parseExpenseCsv } from "../../src/lib/expenseSheet";
+import { expenseMethod, parseExpenseImport } from "./validate";
 
 test("expense csv keeps quoted commas and ignores a status column", () => {
   const parsed = parseExpenseCsv(

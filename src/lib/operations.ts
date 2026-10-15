@@ -1,4 +1,4 @@
-import { paymentMethodLabels, type PaymentMethod } from "@/lib/sales";
+export { methodLabel } from "@/lib/sales";
 
 export const expenseCategories = ["Materials", "Labor", "Transport", "Utilities", "Office", "Other"] as const;
 export const frequencies = ["monthly", "quarterly", "yearly"] as const;
@@ -25,10 +25,6 @@ export const frequencyLabels: Record<Frequency, string> = {
   quarterly: "Quarterly",
   yearly: "Yearly",
 };
-
-export function methodLabel(method: string) {
-  return paymentMethodLabels[method as PaymentMethod] ?? method;
-}
 
 export type ExpenseRow = {
   id: string;

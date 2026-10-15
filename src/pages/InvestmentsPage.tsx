@@ -8,7 +8,8 @@ import { InvestmentForm } from "@/components/finance/InvestmentForm";
 import { Button } from "@/components/ui/button";
 import { can } from "@/lib/access";
 import { api } from "@/lib/api";
-import { formatWhen, investmentStatusLabels, payMethod, type InvestmentRow, type InvestorOption } from "@/lib/finance";
+import { formatWhen, investmentStatusLabels, type InvestmentRow, type InvestorOption } from "@/lib/finance";
+import { methodLabel } from "@/lib/sales";
 import { addMoney, compareMoney, formatShare, formatTaka, shareOfCapital, subtractMoney, toCents } from "@/lib/money";
 
 type ListResponse = { investments: InvestmentRow[]; received: string; returned: string; outstanding: string };
@@ -367,7 +368,7 @@ export function InvestmentsPage() {
                       )}
                     </td>
                     <td className="py-3 font-semibold">{formatTaka(item.received)}</td>
-                    <td className="py-3">{payMethod(item.method)}</td>
+                    <td className="py-3">{methodLabel(item.method)}</td>
                     <td className="py-3">{item.purpose || item.project?.name || "Capital"}</td>
                     <td className="py-3 text-[#64748b]">{item.reference || "—"}</td>
                     <td className="py-3 text-[#64748b]">{item.note || "—"}</td>
