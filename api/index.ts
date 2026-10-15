@@ -8,8 +8,13 @@ function apiUrl(url: string | undefined) {
   return query ? `${withApi}?${query}` : withApi;
 }
 
+function header(req: Request, name: string) {
+  const value = req.headers[name];
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function requestPath(req: Request) {
-  const candidates = [req.url, req.get("x-forwarded-uri"), req.get("x-original-url"), req.get("x-invoke-path"), req.get("x-matched-path")];
+  const candidates = [req.url, header(req, "x-forwarded-uri"), header(req, "x-original-url"), header(req, "x-invoke-path"), header(req, "x-matched-path")];
   const detailed = candidates.find((value) => value?.includes("/api/") && !value.startsWith("/api?"));
   return apiUrl(detailed ?? req.url);
 }
@@ -20,8 +25,8 @@ function getApp() {
 }
 
 export default async function handler(req: Request, res: Response) {
-  req.url = requestPath(req);
   try {
+    req.url = requestPath(req);
     const app = await getApp();
     app(req, res);
   } catch (error) {
